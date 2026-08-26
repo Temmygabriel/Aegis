@@ -1,0 +1,16 @@
+# Node / Next.js (frontend/)
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+npm-debug.log*
+
+# Python (in case of local venvs alongside intelligent-contracts/)
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
