@@ -22,6 +22,29 @@ Design rules carried over from the architecture doc, unchanged by the merge:
 - Deterministic gate (single-use, access control, bond) runs before any
   AI call; the validator independently re-derives the score rather than
   trusting the leader's JSON shape (write-contract.md).
+
+Identity-key hardening (from the Veil DAO-voting post-mortem):
+- `agent_id` and `job_id` are user-typed, non-canonical strings with no
+  external source of truth -- unlike a GitHub handle, there's no registry
+  to check them against. That makes them exactly the kind of identifier
+  the Veil lessons warn about: used as TreeMap dedup/lookup keys without
+  normalization, `"agent-alice"` and `"Agent-Alice"` would silently
+  register as two unrelated agents. For agent_id specifically this is
+  worse than a dedup bypass -- it's a brand-squatting vector, since a
+  buyer has no on-chain way to tell a confusable variant from the
+  original. Both are normalized (`_normalize_key`) before ever touching a
+  TreeMap key; the as-typed string is preserved separately for display.
+- `address_to_agent` is keyed by `str(gl.message.sender_address)`, which
+  is a canonical checksum string derived from raw bytes -- never
+  user-typed -- so it needed no change. Confirmed deliberately rather than
+  assumed.
+- No feature here binds an on-chain sender to an *external* off-chain
+  identity (a GitHub handle, a domain, an API endpoint) yet -- that's a
+  v2 direction (see the accompanying roadmap doc). When that's built: any
+  proof string used for that binding must use the caller's full address,
+  never a truncated prefix -- an 8-hex-digit prefix is a 32-bit space,
+  cheap to grind offline until two different addresses collide on the
+  same proof string, which defeats the binding entirely.
 """
 
 from genlayer import *
@@ -58,6 +81,18 @@ MAX_PAYOUT_BPS_OF_POOL = 1000  # 10% of that tier's pool per single claim
 EVIDENCE_GATEWAY = "https://w3s.link/ipfs/"
 
 
+def _normalize_key(raw: str) -> str:
+    """Canonicalizes a user-typed identifier (agent_id, job_id) before it
+    touches a TreeMap key. Case-fold + strip only -- deliberately not a
+    full confusable/homoglyph defense, just closes the exact bug class from
+    the Veil DAO-voting post-mortem (a case-variant silently treated as a
+    different identity). Never apply this to a value that's about to be
+    used against an *external* canonical system (e.g. a real GitHub API
+    call) unless that system is itself case-insensitive -- here there is no
+    external system, so normalizing the key is the whole fix."""
+    return raw.strip().lower()
+
+
 def _parse_score(analysis) -> int:
     if not isinstance(analysis, dict):
         raise gl.vm.UserError(f"{ERROR_LLM} non-dict response: {type(analysis)}")
@@ -90,6 +125,7 @@ def _handle_leader_error(leaders_res, leader_fn) -> bool:
 @dataclass
 class AgentProfile:
     owner: Address
+    display_name: str    # as-typed at registration -- never used as a key
     tier: str
     jobs_insured: u256
     claims_filed_against: u256
@@ -101,7 +137,8 @@ class AgentProfile:
 @dataclass
 class Policy:
     buyer: Address
-    agent_id: str
+    agent_id: str         # canonical (normalized) key, safe to reuse in lookups
+    display_job_id: str   # as-typed at issuance -- never used as a key
     coverage_atto: u256
     spec_hash: str
     deadline_iso: str
@@ -131,24 +168,29 @@ class Aegis(gl.Contract):
 
     @gl.public.write
     def register(self, agent_id: str) -> None:
+        key = _normalize_key(agent_id)
+        if key == "":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} agent_id cannot be empty")
+
         sender_key = str(gl.message.sender_address)
-        if agent_id in self.agents:
+        if key in self.agents:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} agent_id already registered")
         if sender_key in self.address_to_agent:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} address already bound to an agent_id")
 
-        self.agents[agent_id] = AgentProfile(
+        self.agents[key] = AgentProfile(
             owner=gl.message.sender_address,
+            display_name=agent_id.strip(),
             tier=TIER_UNRATED,
             jobs_insured=u256(0),
             claims_filed_against=u256(0),
             claims_upheld_against=u256(0),
             registered_at=gl.message_raw["datetime"],
         )
-        self.address_to_agent[sender_key] = agent_id
+        self.address_to_agent[sender_key] = key
 
-    def _recompute_tier(self, agent_id: str) -> None:
-        profile = self.agents[agent_id]
+    def _recompute_tier(self, agent_id_key: str) -> None:
+        profile = self.agents[agent_id_key]
         insured = int(profile.jobs_insured)
         upheld = int(profile.claims_upheld_against)
         filed = int(profile.claims_filed_against)
@@ -165,10 +207,13 @@ class Aegis(gl.Contract):
 
     @gl.public.view
     def get_profile(self, agent_id: str) -> dict:
-        if agent_id not in self.agents:
+        key = _normalize_key(agent_id)
+        if key not in self.agents:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown agent_id")
-        p = self.agents[agent_id]
+        p = self.agents[key]
         return {
+            "agent_id": key,
+            "display_name": p.display_name,
             "owner": str(p.owner),
             "tier": p.tier,
             "jobs_insured": int(p.jobs_insured),
@@ -196,12 +241,16 @@ class Aegis(gl.Contract):
         spec_hash: str,
         deadline_iso: str,
     ) -> None:
-        if job_id in self.policies:
+        job_key = _normalize_key(job_id)
+        agent_key = _normalize_key(agent_id)
+        if job_key == "":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} job_id cannot be empty")
+        if job_key in self.policies:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} policy already exists for job_id")
-        if agent_id not in self.agents:
+        if agent_key not in self.agents:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown agent_id")
 
-        tier = self.agents[agent_id].tier
+        tier = self.agents[agent_key].tier
         rate_bps = RATE_BPS_BY_TIER[tier]
         premium_atto = (int(coverage_atto) * rate_bps) // 10000
 
@@ -213,9 +262,10 @@ class Aegis(gl.Contract):
         prior = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
         self.tier_balance[tier] = u256(prior + premium_atto)
 
-        self.policies[job_id] = Policy(
+        self.policies[job_key] = Policy(
             buyer=gl.message.sender_address,
-            agent_id=agent_id,
+            agent_id=agent_key,
+            display_job_id=job_id.strip(),
             coverage_atto=coverage_atto,
             spec_hash=spec_hash,
             deadline_iso=deadline_iso,
@@ -223,16 +273,19 @@ class Aegis(gl.Contract):
             status=STATUS_ACTIVE,
         )
 
-        profile = self.agents[agent_id]
+        profile = self.agents[agent_key]
         profile.jobs_insured = u256(int(profile.jobs_insured) + 1)
-        self._recompute_tier(agent_id)
+        self._recompute_tier(agent_key)
 
     @gl.public.view
     def get_policy(self, job_id: str) -> dict:
-        if job_id not in self.policies:
+        job_key = _normalize_key(job_id)
+        if job_key not in self.policies:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown job_id")
-        p = self.policies[job_id]
+        p = self.policies[job_key]
         return {
+            "job_id": job_key,
+            "display_job_id": p.display_job_id,
             "buyer": str(p.buyer),
             "agent_id": p.agent_id,
             "coverage_atto": int(p.coverage_atto),
@@ -244,7 +297,8 @@ class Aegis(gl.Contract):
 
     @gl.public.view
     def quote_premium(self, agent_id: str, coverage_atto: u256) -> dict:
-        tier = self.agents[agent_id].tier if agent_id in self.agents else TIER_UNRATED
+        key = _normalize_key(agent_id)
+        tier = self.agents[key].tier if key in self.agents else TIER_UNRATED
         rate_bps = RATE_BPS_BY_TIER[tier]
         premium_atto = (int(coverage_atto) * rate_bps) // 10000
         return {"tier": tier, "rate_bps": rate_bps, "premium_atto": premium_atto}
@@ -322,12 +376,13 @@ class Aegis(gl.Contract):
     @gl.public.write.payable
     def file_claim(self, job_id: str, deliverable_hash: str) -> None:
         # ---------------- Deterministic gate (no AI call yet) ----------------
-        if job_id in self.resolved_claims:
+        job_key = _normalize_key(job_id)
+        if job_key in self.resolved_claims:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} claim already resolved for job_id")
-        if job_id not in self.policies:
+        if job_key not in self.policies:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown job_id")
 
-        policy = self.policies[job_id]
+        policy = self.policies[job_key]
         if policy.status != STATUS_ACTIVE:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} policy not active")
         if gl.message.sender_address != policy.buyer:
@@ -341,11 +396,11 @@ class Aegis(gl.Contract):
         verdict = self._judge_breach(spec_hash, deliverable_hash)
         breach = bool(verdict["breach"])
 
-        self.resolved_claims[job_id] = "upheld" if breach else "rejected"
+        self.resolved_claims[job_key] = "upheld" if breach else "rejected"
         policy.status = STATUS_CLAIMED
 
-        agent_id = policy.agent_id
-        profile = self.agents[agent_id]
+        agent_key = policy.agent_id  # already canonical -- stored that way in issue_policy
+        profile = self.agents[agent_key]
         profile.claims_filed_against = u256(int(profile.claims_filed_against) + 1)
 
         tier = policy.pool_tier
@@ -369,7 +424,7 @@ class Aegis(gl.Contract):
             # that didn't hold up, and deters spam.
             self.tier_balance[tier] = u256(pool_value + CLAIM_BOND_ATTO)
 
-        self._recompute_tier(agent_id)
+        self._recompute_tier(agent_key)
 
     def _judge_breach(self, spec_hash: str, deliverable_hash: str) -> dict:
         def leader_fn() -> dict:
@@ -417,4 +472,5 @@ class Aegis(gl.Contract):
 
     @gl.public.view
     def get_claim_status(self, job_id: str) -> str:
-        return self.resolved_claims[job_id] if job_id in self.resolved_claims else "unresolved"
+        key = _normalize_key(job_id)
+        return self.resolved_claims[key] if key in self.resolved_claims else "unresolved"
