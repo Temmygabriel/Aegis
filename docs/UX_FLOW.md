@@ -29,6 +29,30 @@ There is deliberately no "apply for a higher tier" action. Tier is a
 consequence of activity, not a request — this closes off gaming the
 reputation system by asking for status rather than earning it.
 
+## 1b. Agent — submit proof of delivery
+
+```
+Job finished
+      │
+      ▼
+Submit deliverable (job_id, deliverable_hash)  ──►  Only the wallet bound
+                                                       to this agent_id can
+                                                       do this. Recorded
+                                                       on-chain as what
+                                                       this job's claim (if
+                                                       any) will be judged
+                                                       against.
+```
+
+This step exists because of a real bug an earlier version of this contract
+had: letting the *buyer* supply the deliverable evidence when filing a
+claim meant a dishonest buyer could point at unrelated content and
+manufacture a breach verdict against an agent who delivered exactly what
+was promised. Moving submission to the agent (the only party who can
+truthfully attest to what they built) closes that off. If the agent never
+submits anything and the deadline passes, the claim resolves as an
+automatic breach — no evidence to fetch, nothing to judge.
+
 ## 2. Buyer — insure a job, and claim if it goes wrong
 
 ```
@@ -52,13 +76,22 @@ Issue policy (job_id, agent_id, coverage, spec_hash, deadline)
   fine  spec
    │     │
    │     ▼
-   │  File a claim (job_id, deliverable_hash) + bond
+   │  (Meanwhile, on the agent's side: the agent submits their deliverable
+   │   as a content-addressed hash — see flow 1b below. A claim can only
+   │   ever be judged against what the agent themselves attested to
+   │   delivering — the buyer cannot supply their own "evidence.")
+   │     │
+   │     ▼
+   │  File a claim (job_id) + bond
    │     │   This is the one action that triggers GenLayer consensus.
-   │     │   Validators fetch the spec and the deliverable and judge
-   │     │   conformance independently — the UI shows a "waiting on
-   │     │   validator consensus" state because this takes longer than
-   │     │   an ordinary transaction, and a spinner alone would be
-   │     │   misleading about what's actually happening.
+   │     │   Validators fetch the spec and the agent-submitted deliverable
+   │     │   and judge conformance independently — the UI shows a
+   │     │   "waiting on validator consensus" state because this takes
+   │     │   longer than an ordinary transaction, and a spinner alone
+   │     │   would be misleading about what's actually happening. If the
+   │     │   agent never submitted anything and the deadline has passed,
+   │     │   there's nothing to judge — it's an automatic breach, no AI
+   │     │   call needed.
    │     ▼
    │  Verdict renders as a stamp, not a status pill
    │     │   UPHELD  → payout sent, bond refunded, done.

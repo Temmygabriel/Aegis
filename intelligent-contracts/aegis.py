@@ -5,46 +5,59 @@ Single-contract v1, built for studio.genlayer.com (StudioNet).
 
 Everything lives in one gl.Contract: agent identity/reputation, policy
 issuance and pricing, per-tier LP pools, and the GenLayer-consensus claims
-judge. Collapsing what was a 4-contract design into one removes all
-cross-contract calls and the deploy-order dependency chain that came with
-them -- the only external calls left are plain native-token transfers
-(`emit_transfer`) to pay a claim or return LP capital, which are not
-inter-contract *logic* calls and are made from ordinary deterministic write
-methods, never from inside the leader/validator closures.
+judge. The only external calls are plain native-token transfers
+(`emit_transfer`) to pay a claim or return LP capital -- made from ordinary
+deterministic write methods, never from inside the leader/validator
+closures.
 
-Design rules carried over from the architecture doc, unchanged by the merge:
+Design rules:
 - Non-performance / SLA-breach is the only thing GenLayer judges here.
   Premium pricing is a deterministic lookup, not an AI call.
-- One wallet address binds to exactly one agent_id, at registration time
-  (CROSS_PROJECT_LESSONS.md Lesson 3 / FIX_IDENTITY_BINDING.md).
-- Claim evidence is fetched by content hash through a gateway, never a
-  mutable URL, so every validator judges the same bytes (Lesson 1).
+- One wallet address binds to exactly one agent_id, at registration time.
 - Deterministic gate (single-use, access control, bond) runs before any
   AI call; the validator independently re-derives the score rather than
-  trusting the leader's JSON shape (write-contract.md).
+  trusting the leader's JSON shape.
 
-Identity-key hardening (from the Veil DAO-voting post-mortem):
-- `agent_id` and `job_id` are user-typed, non-canonical strings with no
-  external source of truth -- unlike a GitHub handle, there's no registry
-  to check them against. That makes them exactly the kind of identifier
-  the Veil lessons warn about: used as TreeMap dedup/lookup keys without
-  normalization, `"agent-alice"` and `"Agent-Alice"` would silently
-  register as two unrelated agents. For agent_id specifically this is
-  worse than a dedup bypass -- it's a brand-squatting vector, since a
-  buyer has no on-chain way to tell a confusable variant from the
-  original. Both are normalized (`_normalize_key`) before ever touching a
-  TreeMap key; the as-typed string is preserved separately for display.
-- `address_to_agent` is keyed by `str(gl.message.sender_address)`, which
-  is a canonical checksum string derived from raw bytes -- never
-  user-typed -- so it needed no change. Confirmed deliberately rather than
-  assumed.
-- No feature here binds an on-chain sender to an *external* off-chain
-  identity (a GitHub handle, a domain, an API endpoint) yet -- that's a
-  v2 direction (see the accompanying roadmap doc). When that's built: any
-  proof string used for that binding must use the caller's full address,
-  never a truncated prefix -- an 8-hex-digit prefix is a 32-bit space,
-  cheap to grind offline until two different addresses collide on the
-  same proof string, which defeats the binding entirely.
+Identity-key hardening (Veil DAO-voting post-mortem):
+- agent_id / job_id are user-typed, non-canonical strings with no external
+  registry to check against. Used as raw TreeMap keys, a case variant
+  would silently register as a different identity -- for agent_id that's a
+  brand-squatting vector, not just a dedup bug. Normalized (_normalize_key)
+  before touching any key; as-typed text kept separately for display.
+- address_to_agent is keyed by str(Address) -- already canonical, no
+  user-typed casing involved -- confirmed safe, not changed.
+- LP share keys (tier + address) are normalized the same way, for the same
+  reason: a user querying their own position with different address
+  casing must not get a false "no position found."
+
+Gaming-audit hardening (this pass):
+- A policy can only be issued against a tier that already has real LP
+  capital (pool_value > 0), and coverage can't exceed that tier's current
+  pool value. Closes an empty-pool first-depositor exploit: previously a
+  premium could accumulate in a tier with zero LP shares, and the first
+  LP to deposit afterward would mint 100% of the shares against that
+  pre-existing balance -- capturing other buyers' premiums for a token
+  deposit.
+- tier_locked_exposure tracks total live coverage per tier. withdraw()
+  cannot drop a tier's balance below its locked exposure -- an LP can no
+  longer pull capital out from under active coverage, leaving a buyer
+  holding a claim against an empty pool.
+- The deliverable being judged is submitted by the AGENT
+  (submit_deliverable, address-bound like everything else here), never
+  supplied by the buyer at claim time. The earlier design let a buyer pass
+  an arbitrary deliverable_hash straight into file_claim -- meaning a
+  dishonest buyer could point evidence at unrelated content and manufacture
+  a breach verdict against an agent who delivered exactly what was
+  promised. This is the same "independently attributable" evidence
+  property from CROSS_PROJECT_LESSONS.md Lesson 1, applied to the single
+  most consequential piece of evidence in the contract. If the agent never
+  submits anything and the deadline passes, that's an unambiguous breach
+  decided deterministically -- no LLM call needed, nothing to game.
+- spec_hash / deliverable_hash must look like a real content-addressed
+  IPFS CID (CIDv0/CIDv1 shape check), not an arbitrary URL. A mutable URL
+  (e.g. an editable Gist) can be changed between the leader's fetch and
+  the validator's independent re-fetch, defeating the "every validator
+  judges the same bytes" guarantee the whole evidence model depends on.
 """
 
 from genlayer import *
@@ -70,6 +83,7 @@ RATE_BPS_BY_TIER = {
 
 STATUS_ACTIVE = "active"
 STATUS_CLAIMED = "claimed"
+STATUS_EXPIRED = "expired"
 
 CLAIM_BOND_ATTO = 2 * 10**18
 BREACH_THRESHOLD = 40
@@ -80,17 +94,32 @@ MAX_PAYOUT_BPS_OF_POOL = 1000  # 10% of that tier's pool per single claim
 # resolve to the exact same immutable bytes for every validator.
 EVIDENCE_GATEWAY = "https://w3s.link/ipfs/"
 
+_B58_ALPHABET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+_B32_ALPHABET = set("abcdefghijklmnopqrstuvwxyz234567")
+
 
 def _normalize_key(raw: str) -> str:
-    """Canonicalizes a user-typed identifier (agent_id, job_id) before it
-    touches a TreeMap key. Case-fold + strip only -- deliberately not a
-    full confusable/homoglyph defense, just closes the exact bug class from
-    the Veil DAO-voting post-mortem (a case-variant silently treated as a
-    different identity). Never apply this to a value that's about to be
-    used against an *external* canonical system (e.g. a real GitHub API
-    call) unless that system is itself case-insensitive -- here there is no
-    external system, so normalizing the key is the whole fix."""
+    """Canonicalizes a user-typed identifier (agent_id, job_id, an
+    address embedded in an LP share key) before it touches a TreeMap key.
+    Case-fold + strip only -- closes the exact bug class from the Veil
+    DAO-voting post-mortem (a case variant silently treated as a different
+    identity), generalized to every identifier in this contract that has
+    no external canonical registry to check against."""
     return raw.strip().lower()
+
+
+def _looks_like_content_hash(value: str) -> bool:
+    """Pragmatic shape check for an IPFS CID -- not full CID-spec parsing,
+    just enough to reject an arbitrary/mutable URL (e.g. a Gist link) at
+    the door. A mutable URL can change between the leader's fetch and the
+    validator's independent re-fetch, which breaks the "every validator
+    judges the same bytes" guarantee the evidence model depends on."""
+    v = value.strip()
+    if len(v) == 46 and v.startswith("Qm") and all(c in _B58_ALPHABET for c in v):
+        return True  # CIDv0
+    if len(v) >= 50 and v[0] in ("b", "B") and all(c in _B32_ALPHABET for c in v[1:].lower()):
+        return True  # CIDv1 (base32)
+    return False
 
 
 def _parse_score(analysis) -> int:
@@ -101,7 +130,11 @@ def _parse_score(analysis) -> int:
         raise gl.vm.UserError(f"{ERROR_LLM} missing 'score' key")
     try:
         return max(0, min(100, int(round(float(str(raw).strip())))))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # OverflowError: a malformed/adversarial response like "inf" or
+        # "1e400" parses fine as a Python float but blows up on round() --
+        # must land in the same fail-closed [LLM_ERROR] path as any other
+        # unusable score, not escape as an unclassified exception.
         raise gl.vm.UserError(f"{ERROR_LLM} non-numeric score: {raw}")
 
 
@@ -137,10 +170,11 @@ class AgentProfile:
 @dataclass
 class Policy:
     buyer: Address
-    agent_id: str         # canonical (normalized) key, safe to reuse in lookups
-    display_job_id: str   # as-typed at issuance -- never used as a key
+    agent_id: str          # canonical (normalized) key, safe to reuse in lookups
+    display_job_id: str    # as-typed at issuance -- never used as a key
     coverage_atto: u256
     spec_hash: str
+    deliverable_hash: str  # "" until the agent submits one -- see submit_deliverable
     deadline_iso: str
     pool_tier: str
     status: str
@@ -155,9 +189,10 @@ class Aegis(gl.Contract):
     policies: TreeMap[str, Policy]
     resolved_claims: TreeMap[str, str]   # job_id -> "upheld" | "rejected"
 
-    tier_balance: TreeMap[str, u256]     # tier -> pool ledger (atto)
-    tier_shares: TreeMap[str, u256]      # tier -> total LP shares
-    lp_shares: TreeMap[str, u256]        # "{tier}:{address}" -> shares
+    tier_balance: TreeMap[str, u256]         # tier -> pool ledger (atto)
+    tier_shares: TreeMap[str, u256]          # tier -> total LP shares
+    tier_locked_exposure: TreeMap[str, u256]  # tier -> sum of coverage_atto still live
+    lp_shares: TreeMap[str, u256]            # "{tier}:{normalized address}" -> shares
 
     def __init__(self):
         self.admin = gl.message.sender_address
@@ -249,18 +284,39 @@ class Aegis(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} policy already exists for job_id")
         if agent_key not in self.agents:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown agent_id")
+        if not _looks_like_content_hash(spec_hash):
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} spec_hash must be a content-addressed IPFS CID, not a URL"
+            )
+        if int(coverage_atto) <= 0:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} coverage_atto must be > 0")
 
         tier = self.agents[agent_key].tier
+        pool_value = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
+        if pool_value <= 0:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} no underwriting capital available for tier '{tier}' yet"
+            )
+        if int(coverage_atto) > pool_value:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} coverage exceeds available pool capacity "
+                f"({pool_value} atto) for tier '{tier}'"
+            )
+
         rate_bps = RATE_BPS_BY_TIER[tier]
         premium_atto = (int(coverage_atto) * rate_bps) // 10000
+        if premium_atto <= 0:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} coverage too small to price a premium")
 
         if int(gl.message.value) != premium_atto:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} premium must be exactly {premium_atto} atto"
             )
 
-        prior = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
-        self.tier_balance[tier] = u256(prior + premium_atto)
+        self.tier_balance[tier] = u256(pool_value + premium_atto)
+
+        prior_exposure = int(self.tier_locked_exposure[tier]) if tier in self.tier_locked_exposure else 0
+        self.tier_locked_exposure[tier] = u256(prior_exposure + int(coverage_atto))
 
         self.policies[job_key] = Policy(
             buyer=gl.message.sender_address,
@@ -268,6 +324,7 @@ class Aegis(gl.Contract):
             display_job_id=job_id.strip(),
             coverage_atto=coverage_atto,
             spec_hash=spec_hash,
+            deliverable_hash="",
             deadline_iso=deadline_iso,
             pool_tier=tier,
             status=STATUS_ACTIVE,
@@ -276,6 +333,67 @@ class Aegis(gl.Contract):
         profile = self.agents[agent_key]
         profile.jobs_insured = u256(int(profile.jobs_insured) + 1)
         self._recompute_tier(agent_key)
+
+    @gl.public.write
+    def submit_deliverable(self, job_id: str, deliverable_hash: str) -> None:
+        """Only the insured agent can attach the evidence a claim will be
+        judged against -- a buyer can never supply this themselves (see
+        module docstring). Can be called any time before the policy is
+        resolved; a later call simply overwrites an earlier submission,
+        which is fine since nothing is judged until file_claim runs."""
+        job_key = _normalize_key(job_id)
+        if job_key not in self.policies:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown job_id")
+
+        policy = self.policies[job_key]
+        if policy.status != STATUS_ACTIVE:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} policy not active")
+
+        agent_owner = self.agents[policy.agent_id].owner
+        if gl.message.sender_address != agent_owner:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only the insured agent may submit a deliverable")
+        if not _looks_like_content_hash(deliverable_hash):
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} deliverable_hash must be a content-addressed IPFS CID, not a URL"
+            )
+
+        policy.deliverable_hash = deliverable_hash
+
+    @gl.public.write
+    def expire_policy(self, job_id: str) -> None:
+        """Lets a buyer voluntarily release their own coverage once they no
+        longer intend to claim, freeing that capital back to the pool for
+        LPs to withdraw. Buyer-only and deadline-gated on purpose: nobody
+        else (especially not the insured agent) can move a policy out of
+        "active" status, which is what keeps this safe -- an agent racing
+        to expire a policy the instant a legitimate claim was coming would
+        be exactly the kind of new gaming hole this audit is trying to
+        close, not create.
+
+        Known v1 limitation: a buyer who simply never calls this and never
+        files a claim leaves that slice of pool capital locked
+        indefinitely. Accepted tradeoff for now -- a permissionless expiry
+        with a long grace window is a reasonable v1.1 addition once
+        there's a safe way to compute "grace period passed" without adding
+        a race condition."""
+        job_key = _normalize_key(job_id)
+        if job_key not in self.policies:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown job_id")
+
+        policy = self.policies[job_key]
+        if gl.message.sender_address != policy.buyer:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only the buyer may expire this policy")
+        if policy.status != STATUS_ACTIVE:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} policy not active")
+        if gl.message_raw["datetime"] <= policy.deadline_iso:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} deadline has not passed yet")
+
+        policy.status = STATUS_EXPIRED
+        self._release_exposure(policy.pool_tier, int(policy.coverage_atto))
+
+    def _release_exposure(self, tier: str, coverage_atto: int) -> None:
+        current = int(self.tier_locked_exposure[tier]) if tier in self.tier_locked_exposure else 0
+        self.tier_locked_exposure[tier] = u256(max(0, current - coverage_atto))
 
     @gl.public.view
     def get_policy(self, job_id: str) -> dict:
@@ -290,6 +408,7 @@ class Aegis(gl.Contract):
             "agent_id": p.agent_id,
             "coverage_atto": int(p.coverage_atto),
             "spec_hash": p.spec_hash,
+            "deliverable_hash": p.deliverable_hash,
             "deadline_iso": p.deadline_iso,
             "pool_tier": p.pool_tier,
             "status": p.status,
@@ -318,21 +437,34 @@ class Aegis(gl.Contract):
         pool_before = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
         shares_before = int(self.tier_shares[tier]) if tier in self.tier_shares else 0
 
-        if shares_before == 0 or pool_before <= 0:
-            minted = contributed  # bootstrap: 1 share per atto on a fresh pool
+        if shares_before == 0 and pool_before > 0:
+            # Should be unreachable: issue_policy only allows premiums into
+            # a tier that already has shares_before > 0 (see its pool_value
+            # check), and every other credit to tier_balance is paired with
+            # a matching share mint in this same function. If this is ever
+            # hit anyway (e.g. a future code change reintroduces the gap),
+            # fail loudly instead of silently handing a depositor 100% of
+            # an unattributed balance -- the exact empty-pool exploit this
+            # audit pass closed.
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} tier has an unattributed balance with no shares -- aborting"
+            )
+
+        if shares_before == 0:
+            minted = contributed  # true bootstrap: fresh tier, 1 share per atto
         else:
             minted = (contributed * shares_before) // pool_before
 
         self.tier_balance[tier] = u256(pool_before + contributed)
         self.tier_shares[tier] = u256(shares_before + minted)
 
-        share_key = f"{tier}:{gl.message.sender_address}"
+        share_key = f"{tier}:{_normalize_key(str(gl.message.sender_address))}"
         existing = int(self.lp_shares[share_key]) if share_key in self.lp_shares else 0
         self.lp_shares[share_key] = u256(existing + minted)
 
     @gl.public.write
     def withdraw(self, tier: str, shares: u256) -> None:
-        share_key = f"{tier}:{gl.message.sender_address}"
+        share_key = f"{tier}:{_normalize_key(str(gl.message.sender_address))}"
         if share_key not in self.lp_shares:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} no LP position for sender in this tier")
 
@@ -348,6 +480,13 @@ class Aegis(gl.Contract):
 
         payout = (requested * pool_value) // total_shares
 
+        locked = int(self.tier_locked_exposure[tier]) if tier in self.tier_locked_exposure else 0
+        if pool_value - payout < locked:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} withdrawal blocked: {locked} atto is locked backing "
+                f"active coverage in this tier -- try a smaller amount"
+            )
+
         self.lp_shares[share_key] = u256(owned - requested)
         self.tier_shares[tier] = u256(total_shares - requested)
         self.tier_balance[tier] = u256(pool_value - payout)
@@ -362,11 +501,14 @@ class Aegis(gl.Contract):
             "tier": tier,
             "balance_atto": int(self.tier_balance[tier]) if tier in self.tier_balance else 0,
             "total_shares": int(self.tier_shares[tier]) if tier in self.tier_shares else 0,
+            "locked_exposure_atto": int(self.tier_locked_exposure[tier])
+            if tier in self.tier_locked_exposure
+            else 0,
         }
 
     @gl.public.view
     def get_lp_position(self, tier: str, address: str) -> u256:
-        share_key = f"{tier}:{address}"
+        share_key = f"{tier}:{_normalize_key(address)}"
         return self.lp_shares[share_key] if share_key in self.lp_shares else u256(0)
 
     # ------------------------------------------------------------------
@@ -374,7 +516,7 @@ class Aegis(gl.Contract):
     # ------------------------------------------------------------------
 
     @gl.public.write.payable
-    def file_claim(self, job_id: str, deliverable_hash: str) -> None:
+    def file_claim(self, job_id: str) -> None:
         # ---------------- Deterministic gate (no AI call yet) ----------------
         job_key = _normalize_key(job_id)
         if job_key in self.resolved_claims:
@@ -390,11 +532,23 @@ class Aegis(gl.Contract):
         if int(gl.message.value) != CLAIM_BOND_ATTO:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} claim bond must be exactly {CLAIM_BOND_ATTO} atto")
 
-        spec_hash = policy.spec_hash
+        deadline_passed = gl.message_raw["datetime"] > policy.deadline_iso
 
-        # ---------------- Judged consensus (the only nondet part) ----------------
-        verdict = self._judge_breach(spec_hash, deliverable_hash)
-        breach = bool(verdict["breach"])
+        if policy.deliverable_hash == "":
+            # The agent never submitted anything for this contract to
+            # judge. Before the deadline that's premature -- the agent
+            # still has time. After the deadline it's an unambiguous,
+            # deterministic breach: no evidence exists to fetch, so
+            # there's no judgment call for GenLayer consensus to make.
+            if not deadline_passed:
+                raise gl.vm.UserError(
+                    f"{ERROR_EXPECTED} deadline has not passed and no deliverable was submitted yet"
+                )
+            breach = True
+        else:
+            # ---------------- Judged consensus (the only nondet part) ----------------
+            verdict = self._judge_breach(policy.spec_hash, policy.deliverable_hash)
+            breach = bool(verdict["breach"])
 
         self.resolved_claims[job_key] = "upheld" if breach else "rejected"
         policy.status = STATUS_CLAIMED
@@ -405,6 +559,7 @@ class Aegis(gl.Contract):
 
         tier = policy.pool_tier
         pool_value = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
+        self._release_exposure(tier, int(policy.coverage_atto))
 
         if breach:
             profile.claims_upheld_against = u256(int(profile.claims_upheld_against) + 1)
