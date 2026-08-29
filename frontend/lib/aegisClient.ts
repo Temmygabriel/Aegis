@@ -124,6 +124,7 @@ export function getProfile(agentId: string) {
     owner: string;
     tier: Tier;
     jobs_insured: number | bigint;
+    distinct_buyers: number | bigint;
     claims_filed_against: number | bigint;
     claims_upheld_against: number | bigint;
     registered_at: string;

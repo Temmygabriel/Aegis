@@ -58,6 +58,17 @@ Gaming-audit hardening (this pass):
   (e.g. an editable Gist) can be changed between the leader's fetch and
   the validator's independent re-fetch, defeating the "every validator
   judges the same bytes" guarantee the whole evidence model depends on.
+- Tier promotion required only a raw COUNT of insured jobs, with no check
+  on who bought them. One agent could quietly control a second wallet,
+  issue itself a stream of cheap policies, and buy its way to a "gold"
+  reputation it never earned -- then real customers pay the low gold-tier
+  rate for a track record that was fabricated. Fixed with the same idea a
+  sibling GenLayer project's reviewer required for a sybil-prone
+  threshold: a minimum real cost per unit of progress
+  (MIN_COVERAGE_ATTO) plus a minimum count of *distinct* buyer addresses
+  (MIN_DISTINCT_BUYERS_BY_TIER), so a single controlled address can no
+  longer single-handedly advance the count. Same honest caveat as that
+  fix: this raises the attack's cost, it doesn't make it impossible.
 """
 
 from genlayer import *
@@ -89,6 +100,13 @@ CLAIM_BOND_ATTO = 2 * 10**18
 BREACH_THRESHOLD = 40
 SCORE_TOLERANCE = 15
 MAX_PAYOUT_BPS_OF_POOL = 1000  # 10% of that tier's pool per single claim
+MIN_COVERAGE_ATTO = 10**16  # 0.01 GEN floor -- makes every policy a real cost, not free spam
+
+MIN_DISTINCT_BUYERS_BY_TIER = {
+    TIER_BRONZE: 2,
+    TIER_SILVER: 5,
+    TIER_GOLD: 10,
+}
 
 # Content-addressed evidence gateway. spec_hash / deliverable_hash must
 # resolve to the exact same immutable bytes for every validator.
@@ -194,6 +212,9 @@ class Aegis(gl.Contract):
     tier_locked_exposure: TreeMap[str, u256]  # tier -> sum of coverage_atto still live
     lp_shares: TreeMap[str, u256]            # "{tier}:{normalized address}" -> shares
 
+    agent_distinct_buyers: TreeMap[str, u256]  # agent_id -> count of distinct buyer addresses
+    agent_buyer_seen: TreeMap[str, bool]       # "{agent_id}:{buyer address}" -> True once seen
+
     def __init__(self):
         self.admin = gl.message.sender_address
 
@@ -230,12 +251,25 @@ class Aegis(gl.Contract):
         upheld = int(profile.claims_upheld_against)
         filed = int(profile.claims_filed_against)
         breach_rate = (upheld / filed) if filed > 0 else 0.0
+        distinct_buyers = (
+            int(self.agent_distinct_buyers[agent_id_key])
+            if agent_id_key in self.agent_distinct_buyers
+            else 0
+        )
 
-        if insured >= 50 and breach_rate <= 0.02:
+        if (
+            insured >= 50
+            and breach_rate <= 0.02
+            and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_GOLD]
+        ):
             profile.tier = TIER_GOLD
-        elif insured >= 15 and breach_rate <= 0.08:
+        elif (
+            insured >= 15
+            and breach_rate <= 0.08
+            and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_SILVER]
+        ):
             profile.tier = TIER_SILVER
-        elif insured >= 3:
+        elif insured >= 3 and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_BRONZE]:
             profile.tier = TIER_BRONZE
         else:
             profile.tier = TIER_UNRATED
@@ -252,6 +286,7 @@ class Aegis(gl.Contract):
             "owner": str(p.owner),
             "tier": p.tier,
             "jobs_insured": int(p.jobs_insured),
+            "distinct_buyers": int(self.agent_distinct_buyers[key]) if key in self.agent_distinct_buyers else 0,
             "claims_filed_against": int(p.claims_filed_against),
             "claims_upheld_against": int(p.claims_upheld_against),
             "registered_at": p.registered_at,
@@ -290,6 +325,10 @@ class Aegis(gl.Contract):
             )
         if int(coverage_atto) <= 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} coverage_atto must be > 0")
+        if int(coverage_atto) < MIN_COVERAGE_ATTO:
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} coverage_atto must be at least {MIN_COVERAGE_ATTO} atto"
+            )
 
         tier = self.agents[agent_key].tier
         pool_value = int(self.tier_balance[tier]) if tier in self.tier_balance else 0
@@ -332,6 +371,18 @@ class Aegis(gl.Contract):
 
         profile = self.agents[agent_key]
         profile.jobs_insured = u256(int(profile.jobs_insured) + 1)
+
+        buyer_key = _normalize_key(str(gl.message.sender_address))
+        seen_key = f"{agent_key}:{buyer_key}"
+        if seen_key not in self.agent_buyer_seen:
+            self.agent_buyer_seen[seen_key] = True
+            prior_distinct = (
+                int(self.agent_distinct_buyers[agent_key])
+                if agent_key in self.agent_distinct_buyers
+                else 0
+            )
+            self.agent_distinct_buyers[agent_key] = u256(prior_distinct + 1)
+
         self._recompute_tier(agent_key)
 
     @gl.public.write
