@@ -69,6 +69,14 @@ Gaming-audit hardening (this pass):
   (MIN_DISTINCT_BUYERS_BY_TIER), so a single controlled address can no
   longer single-handedly advance the count. Same honest caveat as that
   fix: this raises the attack's cost, it doesn't make it impossible.
+  On top of that: MIN_TENURE_DAYS_BY_TIER requires real elapsed time
+  since registration before a tier is reachable at all, regardless of how
+  much money or how many wallets are thrown at it. Distinct addresses can
+  still be fabricated -- nothing on a blockchain can prove one wallet is
+  one real person, this is the well-known unsolved "sybil problem," not
+  something a single contract can close outright -- but a scheme now has
+  to stay funded and undetected for weeks, not minutes, which is a real
+  deterrent even though it's not a proof of impossibility.
 """
 
 from genlayer import *
@@ -108,12 +116,41 @@ MIN_DISTINCT_BUYERS_BY_TIER = {
     TIER_GOLD: 10,
 }
 
+MIN_TENURE_DAYS_BY_TIER = {
+    TIER_BRONZE: 3,
+    TIER_SILVER: 14,
+    TIER_GOLD: 45,
+}
+
 # Content-addressed evidence gateway. spec_hash / deliverable_hash must
 # resolve to the exact same immutable bytes for every validator.
 EVIDENCE_GATEWAY = "https://w3s.link/ipfs/"
 
 _B58_ALPHABET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 _B32_ALPHABET = set("abcdefghijklmnopqrstuvwxyz234567")
+
+
+def _iso_date_to_day_number(iso_str: str) -> int:
+    """Pure-integer proleptic-Gregorian day count from a UTC ISO8601 string
+    like '2026-08-18T00:00:00Z' -- only the calendar date matters here.
+    Deliberately not using datetime.fromisoformat: this avoids depending on
+    exactly how a given Python build parses the trailing 'Z', and pure
+    integer math has no ambiguity to get wrong. Cross-checked against
+    Python's own datetime module across leap years, month/year boundaries,
+    and multi-year gaps before being trusted here (see commit history)."""
+    y = int(iso_str[0:4])
+    m = int(iso_str[5:7])
+    d = int(iso_str[8:10])
+    y_adj = y - (1 if m <= 2 else 0)
+    era = (y_adj if y_adj >= 0 else y_adj - 399) // 400
+    yoe = y_adj - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146097 + doe - 719468
+
+
+def _days_since(earlier_iso: str, later_iso: str) -> int:
+    return _iso_date_to_day_number(later_iso) - _iso_date_to_day_number(earlier_iso)
 
 
 def _normalize_key(raw: str) -> str:
@@ -256,20 +293,27 @@ class Aegis(gl.Contract):
             if agent_id_key in self.agent_distinct_buyers
             else 0
         )
+        tenure_days = _days_since(profile.registered_at, gl.message_raw["datetime"])
 
         if (
             insured >= 50
             and breach_rate <= 0.02
             and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_GOLD]
+            and tenure_days >= MIN_TENURE_DAYS_BY_TIER[TIER_GOLD]
         ):
             profile.tier = TIER_GOLD
         elif (
             insured >= 15
             and breach_rate <= 0.08
             and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_SILVER]
+            and tenure_days >= MIN_TENURE_DAYS_BY_TIER[TIER_SILVER]
         ):
             profile.tier = TIER_SILVER
-        elif insured >= 3 and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_BRONZE]:
+        elif (
+            insured >= 3
+            and distinct_buyers >= MIN_DISTINCT_BUYERS_BY_TIER[TIER_BRONZE]
+            and tenure_days >= MIN_TENURE_DAYS_BY_TIER[TIER_BRONZE]
+        ):
             profile.tier = TIER_BRONZE
         else:
             profile.tier = TIER_UNRATED
