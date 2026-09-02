@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   AEGIS_ADDRESS,
+  NETWORK_NAME,
   CLAIM_BOND_ATTO,
   VALID_TIERS,
   Tier,
@@ -38,7 +39,7 @@ function ResultBox({
 }) {
   if (state.status === "idle") return null;
   if (state.status === "pending") {
-    return <div className="result">Submitting to Studio…</div>;
+    return <div className="result">Submitting to network…</div>;
   }
   return (
     <div className={`result ${state.status === "error" ? "error" : ""}`}>
@@ -534,7 +535,7 @@ export default function Home() {
       </div>
 
       <div className="footnote">
-        Contract: {AEGIS_ADDRESS ?? "not configured"} · Network: studionet ·
+        Contract: {AEGIS_ADDRESS ?? "not configured"} · Network: {NETWORK_NAME} ·
         Premiums, bonds, and coverage are quoted in exact GEN — the contract
         rejects any amount that doesn't match precisely.
       </div>

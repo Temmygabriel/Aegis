@@ -1,12 +1,25 @@
 "use client";
 
 import { createClient } from "genlayer-js";
-import { studionet } from "genlayer-js/chains";
+import { studionet, testnetBradbury } from "genlayer-js/chains";
 import { TransactionStatus, ExecutionResult } from "genlayer-js/types";
+
+// ---------------------------------------------------------------------------
+// Network selection
+// ---------------------------------------------------------------------------
+// Point the frontend at whichever network your contract is deployed on via
+// NEXT_PUBLIC_AEGIS_NETWORK. Accepts the CLI-style dashed name or the
+// genlayer-js Network string; anything else falls back to studionet.
+const NETWORK_RAW = (process.env.NEXT_PUBLIC_AEGIS_NETWORK ?? "studionet").trim();
+export const NETWORK_NAME: "studionet" | "testnetBradbury" =
+  NETWORK_RAW === "testnet-bradbury" || NETWORK_RAW === "testnetBradbury"
+    ? "testnetBradbury"
+    : "studionet";
+const CHAIN = NETWORK_NAME === "testnetBradbury" ? testnetBradbury : studionet;
 
 // Contract address comes from Vercel env at build/runtime -- see .env.example.
 // This is the one thing you change per deployment; nothing else in this file
-// should need to change to point at a different Aegis deployment on Studio.
+// should need to change to point at a different Aegis deployment.
 export const AEGIS_ADDRESS = process.env
   .NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS as `0x${string}` | undefined;
 
@@ -22,15 +35,15 @@ declare global {
   }
 }
 
-/** Read-only client -- talks directly to Studio's RPC, no wallet needed. */
+/** Read-only client -- talks directly to the network's RPC, no wallet needed. */
 export function getReadClient() {
-  return createClient({ chain: studionet });
+  return createClient({ chain: CHAIN });
 }
 
 /** Write client -- signs through whatever wallet is connected (MetaMask). */
 export function getWriteClient(account: `0x${string}`) {
   return createClient({
-    chain: studionet,
+    chain: CHAIN,
     account,
     provider: typeof window !== "undefined" ? window.ethereum : undefined,
   });
@@ -48,11 +61,11 @@ export async function connectWallet(): Promise<`0x${string}`> {
   }
   const address = accounts[0] as `0x${string}`;
 
-  // Make sure the wallet is actually pointed at Studio before we try to
+  // Make sure the wallet is actually pointed at our network before we try to
   // write to it -- otherwise writeContract throws a confusing chain-mismatch
   // error deep in viem instead of a clear one here.
   const client = getWriteClient(address);
-  await client.connect("studionet");
+  await client.connect(NETWORK_NAME);
 
   return address;
 }

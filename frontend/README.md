@@ -3,7 +3,9 @@
 Next.js dashboard for the single-file `aegis.py` intelligent contract:
 register agents, quote and issue policies, underwrite pools as an LP, file
 claims, and watch consensus verdicts resolve — all read/write calls go
-straight from the browser to `studio.genlayer.com` via `genlayer-js`.
+straight from the browser to the configured GenLayer network via
+`genlayer-js` (StudioNet by default, Testnet Bradbury with
+`NEXT_PUBLIC_AEGIS_NETWORK=testnet-bradbury`).
 
 ## Local development
 
@@ -34,13 +36,15 @@ Studio as a network on first connect if it isn't already there.
    - vercel.com → *Add New* → *Project* → import the GitHub repo.
    - Framework preset: Vercel auto-detects Next.js, no changes needed.
 
-3. **Add the contract address as an environment variable:**
+3. **Add the contract address + network as environment variables:**
    - In the Vercel project → *Settings* → *Environment Variables*.
-   - Key: `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS`
-   - Value: the address from `genlayer deploy --contract aegis.py`
+   - `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` — the address from
+     `genlayer deploy --contract intelligent-contracts/aegis.py`.
+   - `NEXT_PUBLIC_AEGIS_NETWORK` — `studionet` or `testnet-bradbury`
+     (see the live addresses in `docs/DEPLOYMENT.md`).
    - Apply to Production (and Preview if you want preview deploys to work
      against the same contract).
-   - **Redeploy** after adding it — Next.js inlines `NEXT_PUBLIC_*` vars at
+   - **Redeploy** after adding them — Next.js inlines `NEXT_PUBLIC_*` vars at
      build time, so a running deployment won't pick up a newly-added one
      until it rebuilds.
 
@@ -49,10 +53,10 @@ Studio as a network on first connect if it isn't already there.
 
 ## If you redeploy the contract later
 
-Studio contract addresses are per-deployment. If you redeploy `aegis.py`
-(fresh state, new address), update the Vercel env var and redeploy the
-frontend — nothing else in this app needs to change, since the address is
-the only thing that's environment-specific.
+Contract addresses are per-deployment and per-network. If you redeploy
+`aegis.py` (fresh state, new address), update the Vercel env vars and redeploy
+the frontend — nothing else in this app needs to change, since the address and
+network are the only things that are environment-specific.
 
 ## Notes on what's deliberately not built yet
 

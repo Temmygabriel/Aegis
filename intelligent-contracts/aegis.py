@@ -77,6 +77,13 @@ Gaming-audit hardening (this pass):
   something a single contract can close outright -- but a scheme now has
   to stay funded and undetected for weeks, not minutes, which is a real
   deterrent even though it's not a proof of impossibility.
+- issue_policy now requires a deadline that is strictly in the future. Without
+  that check, a buyer could set an already-passed deadline and immediately
+  claim the "no deliverable submitted" auto-breach: the agent has no time to
+  deliver, so a ~6% premium buys a payout of up to the 10%-of-pool cap, and
+  the trick is repeatable with fresh job_ids to drain a tier or burn an
+  honest agent's reputation in a single block. Future-dated deadlines give
+  the agent a real window to submit evidence before a claim can auto-breach.
 """
 
 from genlayer import *
@@ -372,6 +379,17 @@ class Aegis(gl.Contract):
         if int(coverage_atto) < MIN_COVERAGE_ATTO:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} coverage_atto must be at least {MIN_COVERAGE_ATTO} atto"
+            )
+        if deadline_iso <= gl.message_raw["datetime"]:
+            # Deadline must be strictly in the future. Without this, a buyer
+            # could issue a policy with an already-passed deadline and claim
+            # the instant "no deliverable submitted" auto-breach before the
+            # agent has any chance to deliver -- paying a ~6% premium to
+            # extract up to the 10%-of-pool payout cap, repeatable with fresh
+            # job_ids to drain a tier pool or burn an honest agent's
+            # reputation in a single block. Future-dated only.
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} deadline must be a future timestamp"
             )
 
         tier = self.agents[agent_key].tier
