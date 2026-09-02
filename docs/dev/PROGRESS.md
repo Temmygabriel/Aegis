@@ -73,7 +73,8 @@ within each section; keep this updated as work happens.
 3. ~~Deploy `aegis.py` to Bradbury; record address; run CLI e2e.~~ **Done** — `0x1ad8…1f54`.
 4. ~~Make frontend network-aware + remove duplicate files.~~ **Done** — network via
    `NEXT_PUBLIC_AEGIS_NETWORK`; Vercel cloud build will verify.
-5. Push repo to github.com/Temmygabriel/Aegis — **BLOCKED on user action**:
-   repo must be created empty at github.com/new, then `git push -u origin main`
-   run by the user (`!` command) since gh is not installed and no token exists.
-6. Help import into Vercel (user action) with env vars set.
+5. ~~Push repo to github.com/Temmygabriel/Aegis.~~ **Done** — remote `main` at
+   `c63abc5` matches local (pushed via Windows Git Credential Manager, no gh
+   needed).
+6. Help import into Vercel (user action) — Root Directory `frontend/`, env vars
+   from docs/DEPLOYMENT.md.
