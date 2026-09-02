@@ -8,10 +8,31 @@ within each section; keep this updated as work happens.
 - **Done:** investigation, toolchain setup, direct-mode test suite (26 tests
   all passing), game-security review — one real exploit found **and fixed**
   (instant auto-breach via past deadline). Contract lints clean.
-- **Next:** real deploy + e2e on StudioNet, then Bradbury; then frontend
-  network-awareness + GitHub push.
+- **Next:** confirm the wallet-integration deploy on the live Vercel site —
+  top-right identity chip should replace "Connect wallet", and a register/
+  deposit/issue tx should sign locally with the browser key.
 
 ## What's been done
+
+### Wallet integration — honest browser identity (2026-09-02)
+- Implemented `aegis-wallet-integration.md` (design distilled from the Rigor
+  frontend). Replaced the MetaMask "Connect wallet" flow with a browser
+  **identity chip** — because GenLayer studionet tx are signed locally by a
+  genlayer-js keypair, and MetaMask can't sign them. The UI says so plainly.
+- New `frontend/lib/identity.ts` (`aegis.identity.pk.v1` key in localStorage;
+  generate/import/reset helpers; works around the viem private-key trap by
+  persisting our own copy of the key, not `account.privateKey` which is
+  `undefined`), `frontend/app/providers.tsx` (identity context, client-only
+  hydration), `frontend/components/IdentityBadge.tsx` (chip + dropdown: address
+  + copy, honesty notice, show/copy private key, import-from-key with live
+  "Recovers: 0x…" preview, MetaMask display-only, generate-new danger).
+- `frontend/lib/aegisClient.ts`: write client now signs with the Account object
+  (`createClient({ chain, account })`, no provider, no `.connect()`); dropped
+  `connectWallet`; **fixed a real bug** — only attach `value` when strictly
+  positive (GenLayer RPC rejects an explicit `value: 0` on payable calls).
+- `frontend/app/page.tsx`: topbar shows `<IdentityBadge />`; write flows take
+  the account from context; LP stake lookup passes `acct.address`.
+- Pushed as `13ce1bf`; Vercel rebuild pending. **Not yet visually confirmed.**
 
 ### Frontend UI redesign — "bold modern" (2026-09-02)
 - User rejected the first UI ("total bullshit") and picked a **bold modern**

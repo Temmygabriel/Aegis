@@ -90,6 +90,24 @@ The frontend needs the address via `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` (and
   one block). Guard added 2026-09-02; regression test
   `test_issue_policy_rejects_past_deadline`.
 
+## GenLayer signing model (frontend, learned the hard way)
+
+- MetaMask **cannot sign** GenLayer tx. The app signs with a genlayer-js
+  keypair created/stored in the browser (localStorage `aegis.identity.pk.v1`)
+  and labels it honestly as a "browser identity." Modeled on the Rigor
+  frontend (`identity.ts` / `IdentityBadge.tsx` / `providers.tsx` on disk).
+- **viem private-key trap:** `createAccount(pk)` returns an Account object
+  whose `.privateKey` is `undefined`. Persist YOUR OWN copy of the key
+  (from `generatePrivateKey()`) and rebuild with `createAccount(key)`.
+- Write client = `createClient({ chain, account })` with the Account object —
+  no provider, no `.connect()`. MetaMask-style `{ account: address, provider,
+  connect() }` is the WRONG model here.
+- **GenLayer RPC rejects an explicit `value: 0`** on a payable call
+  ("Invalid parameters"). Only attach `value` when strictly positive.
+  (Both rules verified in Rigor's `lib/genlayer.ts` + `lib/contract.ts`.)
+- Identity hydration must run in a client-only `useEffect` (never during SSR),
+  or the page server-renders a fresh random key every request.
+
 ## Frontend preferences (user is opinionated about the UI)
 
 - The first paper/ledger look was called "total bullshit." The approved
