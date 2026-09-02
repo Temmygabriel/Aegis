@@ -28,8 +28,10 @@ within each section; keep this updated as work happens.
   "Recovers: 0x…" preview, MetaMask display-only, generate-new danger).
 - `frontend/lib/aegisClient.ts`: write client now signs with the Account object
   (`createClient({ chain, account })`, no provider, no `.connect()`); dropped
-  `connectWallet`; **fixed a real bug** — only attach `value` when strictly
-  positive (GenLayer RPC rejects an explicit `value: 0` on payable calls).
+  `connectWallet`. `writeContract` always passes `value` (0n when nothing
+  moves) because genlayer-js 1.2.0 types require it and its local-account path
+  signs value-0 fine — the old "never send value:0" rule only applied to the
+  MetaMask provider path.
 - `frontend/app/page.tsx`: topbar shows `<IdentityBadge />`; write flows take
   the account from context; LP stake lookup passes `acct.address`.
 - Pushed as `13ce1bf`; Vercel rebuild pending. **Not yet visually confirmed.**

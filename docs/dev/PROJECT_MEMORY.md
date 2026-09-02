@@ -102,9 +102,13 @@ The frontend needs the address via `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` (and
 - Write client = `createClient({ chain, account })` with the Account object —
   no provider, no `.connect()`. MetaMask-style `{ account: address, provider,
   connect() }` is the WRONG model here.
-- **GenLayer RPC rejects an explicit `value: 0`** on a payable call
-  ("Invalid parameters"). Only attach `value` when strictly positive.
-  (Both rules verified in Rigor's `lib/genlayer.ts` + `lib/contract.ts`.)
+- **genlayer-js `writeContract` types require `value: bigint`** (always present).
+  Its implementation defaults to `0n` and signs value-0 transactions normally
+  on the local-account path (verified in genlayer-js 1.2.0 `dist/index.js`,
+  `_sendTransaction`). The older Rigor note "never send an explicit value:0 —
+  GenLayer's RPC rejects it" applies to the MetaMask/`eth_sendTransaction`
+  provider path, NOT to local-account signing. Aegis uses local accounts, so it
+  passes `value` unconditionally (0n when nothing moves).
 - Identity hydration must run in a client-only `useEffect` (never during SSR),
   or the page server-renders a fresh random key every request.
 

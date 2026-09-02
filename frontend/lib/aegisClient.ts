@@ -75,9 +75,10 @@ async function write(
     address: requireAddress(),
     functionName,
     args,
-    // Never send an explicit value:0 on a payable call -- GenLayer's RPC
-    // rejects it. Only attach `value` when it is strictly positive.
-    ...(value > 0n ? { value } : {}),
+    // genlayer-js requires `value` in writeContract's args type. Its own
+    // implementation defaults it to 0n and signs value-0 transactions fine on
+    // the local-account path (viem account, no MetaMask), so always pass it.
+    value,
   });
 
   const receipt = await client.waitForTransactionReceipt({
