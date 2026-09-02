@@ -23,6 +23,10 @@ export function IdentityBadge() {
   const [importErr, setImportErr] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
 
+  // -- "generate new identity" inline confirmation (type DELETE)
+  const [delConfirm, setDelConfirm] = useState(false);
+  const [delTyped, setDelTyped] = useState("");
+
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Reset all ephemeral state every time the menu closes.
@@ -37,6 +41,8 @@ export function IdentityBadge() {
       setRecovers(null);
       setImportErr(null);
       setImportMsg(null);
+      setDelConfirm(false);
+      setDelTyped("");
     }
   }, [open]);
 
@@ -273,7 +279,7 @@ export function IdentityBadge() {
           <hr className="idsep" />
 
           {/* 5 — MetaMask (display only) */}
-          <div className="idsec">
+          <div className="idsec mm">
             <div className="idlabel">MetaMask</div>
             {!mmAddress ? (
               <div className="idstack">
@@ -299,21 +305,55 @@ export function IdentityBadge() {
           <hr className="idsep" />
 
           {/* 6 — danger */}
-          <button
-            className="btn btn-danger btn-sm idwide"
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Generate a new browser identity? Your current address stays on-chain, but this browser will act as a different address going forward."
-                )
-              ) {
-                reset();
-                setOpen(false);
-              }
-            }}
-          >
-            Generate new identity
-          </button>
+          <div className="idsec danger">
+            <div className="idlabel">Danger zone</div>
+            {!delConfirm ? (
+              <button
+                className="btn btn-danger btn-sm idwide"
+                onClick={() => setDelConfirm(true)}
+              >
+                Generate new identity
+              </button>
+            ) : (
+              <div className="idstack">
+                <div className="idhint">
+                  Generating a new identity swaps the browser signer. Your current
+                  address stays on-chain, but this browser will act as a different
+                  address from now on — any agent registration or funded LP
+                  position tied to the current one becomes unreachable from here.
+                </div>
+                <input
+                  className="input mono"
+                  placeholder="Type DELETE to confirm"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={delTyped}
+                  onChange={(e) => setDelTyped(e.target.value)}
+                />
+                <div className="btn-row">
+                  <button
+                    className="btn btn-danger btn-sm"
+                    disabled={delTyped.trim().toUpperCase() !== "DELETE"}
+                    onClick={() => {
+                      reset();
+                      setOpen(false);
+                    }}
+                  >
+                    Generate new identity
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setDelConfirm(false);
+                      setDelTyped("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

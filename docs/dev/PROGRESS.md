@@ -8,14 +8,54 @@ within each section; keep this updated as work happens.
 - **Done:** investigation, toolchain setup, direct-mode test suite (26 tests
   all passing), game-security review — one real exploit found **and fixed**
   (instant auto-breach via past deadline). Contract lints clean.
-- **Next:** confirm the wallet-integration deploy on the live Vercel site —
-  top-right identity chip should replace "Connect wallet", and a register/
-  deposit/issue tx should sign locally with the browser key. **Live site env
-  must flip** to the canonical StudioNet contract (`0xED90…`) before the
-  submission walkthrough; draft of the GenLayer Project Explorer submission
-  in progress.
+- **Done (reviewer-proof e2e):** StudioNet **28/28 PASS** on the canonical
+  deploy; Bradbury **1 GEN roundtrip 7/7 PASS** (cost-safe). Full report in
+  `docs/dev/E2E_REPORT.md`; canonical addresses in
+  `intelligent-contracts/README.md`.
+- **Done (UI/UX review round):** implemented the `aegis-ui-ux-recommendations.md`
+  items that matter — fresh-quote-then-confirm issue flow, empty-pool buyer gate,
+  policy review step, derived policy status, consensus elapsed hint, Claims
+  role grouping, IdentityBadge type-DELETE confirm, MetaMask mute, tier rates on
+  pool tiles, stat-card skeleton + slow-load timeout, refresh timestamp, tab
+  relabel, footnote dedupe. (#7 local activity log deferred; #18 zero-display
+  convention already consistent.) **Not yet visually confirmed on the Vercel build.**
+- **Next:** flip the **live Vercel env** to the canonical StudioNet contract
+  (`NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`)
+  + rebuild, then visually verify the UX round; draft of the GenLayer Project
+  Explorer submission in progress.
 
 ## What's been done
+
+### UI/UX review round — 19-item recommendations, implemented (2026-09-02)
+- Worked from `aegis-ui-ux-recommendations.md` against the live frontend
+  (`app/page.tsx`, `app/globals.css`, `components/IdentityBadge.tsx`,
+  `lib/aegisClient.ts`). No on-chain behavior changed — all edits are UX/flow.
+- **Critical fixes:** `doIssue()` re-quotes at pay time (a stale tier can never
+  fire a wrong-premium revert); empty-pool is pre-checked via `get_pool_info`
+  → targeted "Fund the {tier} pool" notice + button that jumps to the Pools
+  tab; claims show a ticking "validators are re-fetching…" hint; Pools "Load
+  my stake" is disabled until the identity hydrates.
+- **High impact:** every policy goes through a **Review & pay** confirm panel
+  (Job/Agent/tier·rate/Coverage/Premium/Deadline/Spec + Edit) before any value
+  moves; Inspect-a-policy derives a real status from `deliverable_hash +
+  deadline` ("Awaiting delivery" / "Auto-breach available" / "Deliverable
+  submitted" / "Ready to claim" / paid-out / expired) with an action tip; spec
+  input explains the CID requirement; post-register guidance shows what happens
+  next; pool tiles show each tier's premium rate; IdentityBadge's "Generate new
+  identity" now needs the word DELETE typed inline instead of a one-click
+  `window.confirm`.
+- **Polish:** stat card uses a shimmer skeleton + 10s "network may be slow"
+  fallback; Refresh shows an "Updated hh:mm:ss" stamp; tab relabelled "Pools"
+  and wraps on narrow screens; footnote no longer repeats the hero contract
+  address; MetaMask (display-only) section visually muted/italic; contract
+  error prefixes `[EXPECTED]` etc. are stripped before display.
+- **Deferred deliberately:** #7 (client-side "recent activity" log) — extra
+  localStorage surface for little reviewer value and real edge-case risk;
+  #18 (zero-display) already reads consistently as `0 GEN` / `—`.
+- Files: `frontend/app/page.tsx`, `frontend/app/globals.css`,
+  `frontend/components/IdentityBadge.tsx`, `frontend/lib/aegisClient.ts`.
+  **Pending visual confirmation on the Vercel build** (no local `next build`
+  on this 8 GB machine).
 
 ### Bradbury value roundtrip PASS — cost-safe 1 GEN (2026-09-02)
 - After the 20 GEN deposit burn (below), redesigned the Bradbury check to a
@@ -148,8 +188,10 @@ within each section; keep this updated as work happens.
 - **Fixed:** past-deadline policy issuance (instant auto-breach exploit).
 - `genvm-lint validate` still blocked by SDK 404 (environment, not the
   contract) — deployment + tests are the authoritative validation.
-- Frontend still hardcodes `studionet` and has stale root-level duplicates
-  (`frontend/aegisClient.ts`, `frontend/page.tsx`) to remove before push.
+- Frontend is network- and address-driven by env vars
+  (`NEXT_PUBLIC_AEGIS_NETWORK`, `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS`); the
+  **live Vercel site still points at the old StudioNet deploy `0x4870…`** and
+  must be flipped to the canonical `0xED90…` before the submission walkthrough.
 
 ## Deployments
 - **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
@@ -166,8 +208,12 @@ within each section; keep this updated as work happens.
 - `docs/dev/` — internal working notes (PROGRESS.md, PROJECT_MEMORY.md).
 
 ## Next steps
-1. Review the redesigned dashboard on the Vercel build; check logo/favicon,
-   pool tile reads, and each tab. Watch for browser CORS to studio.genlayer.com.
-2. ~~Push repo to github.com/Temmygabriel/Aegis.~~ **Done** — remote `main`
-   matches local.
+1. Flip the live Vercel env to the canonical StudioNet deploy
+   (`0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`) and rebuild; then visually
+   confirm the UX-review round on the live site (review/confirm flow, claims
+   grouping, identity menu, tiles).
+2. Draft the GenLayer Project Explorer submission from
+   `genlayer-submission-playbook.md` (Studio + Bradbury explorer URLs, live
+   website `https://aegis-insurance-project.vercel.app/`, GitHub
+   `https://github.com/Temmygabriel/Aegis`).
 3. Keep StudioNet as the live frontend target (Bradbury stays documented only).

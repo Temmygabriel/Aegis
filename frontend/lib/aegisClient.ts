@@ -30,6 +30,15 @@ export const CLAIM_BOND_ATTO = 2n * 10n ** 18n;
 export const VALID_TIERS = ["unrated", "bronze", "silver", "gold"] as const;
 export type Tier = (typeof VALID_TIERS)[number];
 
+/** Premium rate in basis points per tier (mirrors RATE_BPS_BY_TIER in aegis.py).
+ * 1 bps = 0.01% of coverage. Keep in sync if the contract's constants change. */
+export const RATE_BPS_BY_TIER: Record<Tier, number> = {
+  unrated: 600,
+  bronze: 400,
+  silver: 250,
+  gold: 150,
+};
+
 /** Read-only client -- talks directly to the network's RPC, no wallet needed. */
 export function getReadClient() {
   return createClient({ chain: CHAIN });
@@ -220,6 +229,13 @@ export function getClaimStatus(jobId: string) {
  * depending on size -- normalize to bigint before doing any math on them. */
 export function toBig(value: number | bigint): bigint {
   return typeof value === "bigint" ? value : BigInt(Math.trunc(value));
+}
+
+/** The contract classifies errors with prefixes for the GenLayer validator
+ * machinery ([EXPECTED], [EXTERNAL], [TRANSIENT], [LLM_ERROR]). Those leak into
+ * the error text a user sees and are noise -- strip them before surfacing. */
+export function cleanContractError(message: string): string {
+  return message.replace(/\[(?:EXPECTED|EXTERNAL|TRANSIENT|LLM_ERROR)\]\s*/g, "");
 }
 
 /** Parses a decimal GEN string ("1.5") into exact atto (10^18) as a bigint,

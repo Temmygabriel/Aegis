@@ -21,6 +21,8 @@ import {
   getClaimStatus,
   parseGenToAtto,
   formatAttoToGen,
+  RATE_BPS_BY_TIER,
+  cleanContractError,
   toBig,
 } from "@/lib/aegisClient";
 import { useIdentity } from "@/app/providers";
@@ -44,6 +46,11 @@ const TIER_NAMES: Record<Tier, string> = {
 function gen(atto: bigint | number, decimals = 4): string {
   const s = formatAttoToGen(toBig(atto), decimals);
   return s.replace(/\.?0+$/, "") || "0";
+}
+
+/** Strip GenLayer error-classification prefixes before showing to a human. */
+function errText(e: any): string {
+  return cleanContractError(e?.message ?? String(e)).trim();
 }
 
 type Notice =
@@ -91,6 +98,29 @@ function VerdictBox({ v, detail }: { v: Verdict; detail: string }) {
   );
 }
 
+/** Ticking elapsed-seconds readout for the long consensus waits. */
+function Elapsed({ since }: { since: number }) {
+  const [s, setS] = useState(0);
+  useEffect(() => {
+    if (!since) return;
+    const id = setInterval(() => setS(Math.max(0, Math.round((Date.now() - since) / 1000))), 1000);
+    return () => clearInterval(id);
+  }, [since]);
+  return <>{s}s</>;
+}
+
+/** One-line hint shown while a claim is waiting on validator consensus. */
+function ConsensusPending({ since }: { since: number }) {
+  if (!since) return null;
+  return (
+    <p className="hint" style={{ marginTop: 2 }}>
+      Validators are independently re-fetching the spec and deliverable and
+      scoring conformance. This typically takes 30–90 seconds. (
+      <Elapsed since={since} /> elapsed)
+    </p>
+  );
+}
+
 type EnsureWallet = () => Promise<GenAccount>;
 
 /* ------------------------------------------------ domain shapes from reads */
@@ -118,11 +148,51 @@ type PolicyInfo = {
 
 type Verdict = "unresolved" | "upheld" | "rejected";
 
-const policyStatusLabel: Record<PolicyInfo["status"], string> = {
-  active: "Active cover",
-  claimed: "Paid out",
-  expired: "Expired",
+type PolicyDisplayState = {
+  label: string;
+  cls: string; // css chip class
+  action: string | null; // action-tip text, or null when nothing to do
 };
+
+/** Turn raw policy fields into a plain-language statement of where the job
+ * stands. The contract only returns "active" until a claim resolves, so the
+ * real signal is deliverable_hash + deadline vs now: an empty deliverable
+ * past the deadline is an automatic breach the buyer can claim with no risk. */
+function derivePolicyState(p: PolicyInfo): PolicyDisplayState {
+  const hasDeliv = (p.deliverable_hash ?? "").trim().length > 0;
+  const dl = Date.parse(p.deadline_iso);
+  const pastDeadline = Number.isNaN(dl) ? false : dl <= Date.now();
+  if (p.status === "claimed")
+    return {
+      label: "Paid out",
+      cls: "claimed",
+      action: "Verdict is final — the payout already left the pool.",
+    };
+  if (p.status === "expired")
+    return { label: "Expired", cls: "expired", action: null };
+  // status === "active":
+  if (!hasDeliv && !pastDeadline)
+    return { label: "Awaiting delivery", cls: "awaiting", action: null };
+  if (!hasDeliv && pastDeadline)
+    return {
+      label: "Auto-breach available",
+      cls: "breach",
+      action:
+        "No deliverable was submitted before the deadline — the clock has already decided. File a claim to collect; there is no bond risk.",
+    };
+  if (hasDeliv && !pastDeadline)
+    return {
+      label: "Deliverable submitted",
+      cls: "submitted",
+      action:
+        "Only file a claim if the deliverable does not conform to the spec — a wrong claim is rejected and the bond is forfeited.",
+    };
+  return {
+    label: "Ready to claim",
+    cls: "ready",
+    action: "Deadline passed with a deliverable on file. File a claim if it did not meet the spec.",
+  };
+}
 
 /* ============================================================ AGENTS TAB */
 
@@ -141,8 +211,16 @@ function AgentsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       const { hash } = await register(addr, agentId);
       setRegN({ status: "ok", title: "Agent registered", detail: `tx ${hash}` });
       setLookId(agentId);
+      // Surface their own fresh profile straight away so "now what?" is
+      // answerable at a glance instead of requiring another Look up click.
+      try {
+        const p = await getProfile(agentId);
+        setProf(p);
+      } catch {
+        /* profile read is a bonus -- the registration is already confirmed */
+      }
     } catch (e: any) {
-      setRegN({ status: "error", title: "Registration failed", detail: e?.message ?? String(e) });
+      setRegN({ status: "error", title: "Registration failed", detail: errText(e) });
     }
   }
 
@@ -154,7 +232,7 @@ function AgentsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       setProfN(idleNotice);
     } catch (e: any) {
       setProf(null);
-      setProfN({ status: "error", title: "Lookup failed", detail: e?.message ?? String(e) });
+      setProfN({ status: "error", title: "Lookup failed", detail: errText(e) });
     }
   }
 
@@ -181,6 +259,14 @@ function AgentsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
           </button>
         </div>
         <Notice n={regN} />
+        {regN.status === "ok" && (
+          <p className="hint" style={{ marginTop: -6 }}>
+            Agent <b>{agentId}</b> is live, starting at tier <b>Unrated</b>. Share
+            this agent ID with buyers so they can insure jobs against you. Your tier
+            improves automatically as insured jobs and a clean claim history
+            accumulate — no action required. Your profile is shown below.
+          </p>
+        )}
         <p className="hint">
           Buying cover for an unregistered agent won't work — a policy always points
           back at a real registered identity.
@@ -258,9 +344,11 @@ function AgentsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
 function PoolsPanel({
   ensureWallet,
   refreshPools,
+  identityReady,
 }: {
   ensureWallet: EnsureWallet;
   refreshPools: () => Promise<void>;
+  identityReady: boolean;
 }) {
   const [depTier, setDepTier] = useState<Tier>("unrated");
   const [depAmount, setDepAmount] = useState("5");
@@ -280,7 +368,7 @@ function PoolsPanel({
       setDepN({ status: "ok", title: `Deposited ${gen(atto)} GEN to ${TIER_NAMES[depTier].toLowerCase()}`, detail: `tx ${hash}` });
       void refreshPools();
     } catch (e: any) {
-      setDepN({ status: "error", title: "Deposit failed", detail: e?.message ?? String(e) });
+      setDepN({ status: "error", title: "Deposit failed", detail: errText(e) });
     }
   }
 
@@ -298,7 +386,7 @@ function PoolsPanel({
         setStakeN(idleNotice);
       }
     } catch (e: any) {
-      setStakeN({ status: "error", title: "Couldn't read your position", detail: e?.message ?? String(e) });
+      setStakeN({ status: "error", title: "Couldn't read your position", detail: errText(e) });
     }
   }
 
@@ -312,7 +400,7 @@ function PoolsPanel({
       setWithdrawN({ status: "ok", title: `Withdrew your ${stakeTier} stake`, detail: `tx ${hash}` });
       void refreshPools();
     } catch (e: any) {
-      setWithdrawN({ status: "error", title: "Withdrawal failed", detail: e?.message ?? String(e) });
+      setWithdrawN({ status: "error", title: "Withdrawal failed", detail: errText(e) });
     }
   }
 
@@ -380,12 +468,26 @@ function PoolsPanel({
           </div>
           <div className="field">
             <label>Your shares</label>
-            <input className="input" value={position === null ? "—" : position.toString()} readOnly />
+            <input
+              className="input"
+              value={position === null ? (!identityReady ? "identity loading…" : "—") : position.toString()}
+              readOnly
+            />
           </div>
         </div>
         <div className="btn-row">
-          <button className="btn btn-ghost" disabled={stakeN.status === "pending"} onClick={doLoadStake}>
-            {stakeN.status === "pending" ? "Loading…" : position === null ? "Load my stake" : "Re-check"}
+          <button
+            className="btn btn-ghost"
+            disabled={stakeN.status === "pending" || !identityReady}
+            onClick={doLoadStake}
+          >
+            {stakeN.status === "pending"
+              ? "Loading…"
+              : !identityReady
+                ? "Identity loading…"
+                : position === null
+                  ? "Load my stake"
+                  : "Re-check"}
           </button>
           {position !== null && position > 0n && (
             <button className="btn btn-primary" disabled={withdrawN.status === "pending"} onClick={doWithdraw}>
@@ -408,7 +510,13 @@ function PoolsPanel({
 
 /* =========================================================== COVERAGE TAB */
 
-function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
+function CoveragePanel({
+  ensureWallet,
+  onGoPools,
+}: {
+  ensureWallet: EnsureWallet;
+  onGoPools: () => void;
+}) {
   const [jobId, setJobId] = useState("job-001");
   const [covAgentId, setCovAgentId] = useState("agent-alice");
   const [coverage, setCoverage] = useState("1");
@@ -421,6 +529,20 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
   const [quote, setQuote] = useState<{ tier: Tier; rate_bps: number; premiumAtto: bigint } | null>(null);
   const [quoteN, setQuoteN] = useState<Notice>(idleNotice);
   const [issueN, setIssueN] = useState<Notice>(idleNotice);
+
+  // Policy the buyer is about to pay for -- held for review before any money
+  // moves. Nothing is sent until Confirm is clicked.
+  const [review, setReview] = useState<null | {
+    jobId: string;
+    agentId: string;
+    coverageAtto: bigint;
+    specHash: string;
+    deadline: string;
+    premiumAtto: bigint;
+    tier: Tier;
+  }>(null);
+  // Set when the quote succeeded but the agent's tier pool has no LP capital.
+  const [needPool, setNeedPool] = useState<Tier | null>(null);
 
   const [polJob, setPolJob] = useState("job-001");
   const [pol, setPol] = useState<PolicyInfo | null>(null);
@@ -440,31 +562,75 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
         detail: `${TIER_NAMES[q.tier]} tier · ${Number(q.rate_bps) / 100}% of coverage`,
       });
     } catch (e: any) {
-      setQuoteN({ status: "error", title: "Couldn't get a quote", detail: e?.message ?? String(e) });
+      setQuoteN({ status: "error", title: "Couldn't get a quote", detail: errText(e) });
     }
   }
 
+  /** Quote-first + pool-gate, then hold the terms up for review. Nothing is
+   * paid until the buyer hits Confirm, so a stale quote can never fire a tx
+   * that the chain rejects for a wrong premium. */
   async function doIssue() {
     if (!quote) return;
+    setReview(null);
+    setNeedPool(null);
+    setIssueN(idleNotice);
+    try {
+      const cov = parseGenToAtto(coverage);
+      // Always re-quote at pay time: if the agent's tier just changed, the
+      // premium shown for review is the current one, not a stale cache.
+      const q = await quotePremium(covAgentId, cov);
+      const freshPremium = toBig(q.premium_atto);
+      const next = {
+        jobId: jobId.trim(),
+        agentId: covAgentId.trim(),
+        coverageAtto: cov,
+        specHash: specHash.trim(),
+        deadline,
+        premiumAtto: freshPremium,
+        tier: q.tier,
+      };
+      setQuote({ tier: q.tier, rate_bps: Number(q.rate_bps), premiumAtto: freshPremium });
+      // Empty-pool gate: issuing needs LP capital in the agent's tier pool.
+      const pool = await getPoolInfo(q.tier);
+      if (toBig(pool.balance_atto) === 0n) {
+        setNeedPool(q.tier);
+        setQuoteN(idleNotice);
+        setIssueN({
+          status: "error",
+          title: `No underwriting capital in the ${TIER_NAMES[q.tier]} pool yet`,
+          detail: `This policy can't be issued until an LP deposits into the ${TIER_NAMES[q.tier].toLowerCase()} pool.`,
+        });
+        return;
+      }
+      setIssueN(idleNotice);
+      setReview(next);
+    } catch (e: any) {
+      setIssueN({ status: "error", title: "Couldn't prepare your policy", detail: errText(e) });
+    }
+  }
+
+  /** Final, irreversible step -- only reachable from the review panel. */
+  async function doConfirmIssue() {
+    if (!review) return;
     setIssueN({ status: "pending", title: "Issuing policy on-chain…" });
     try {
       const addr = await ensureWallet();
-      const cov = parseGenToAtto(coverage);
       const { hash } = await issuePolicy(
         addr,
-        jobId,
-        covAgentId,
-        cov,
-        specHash,
-        deadline,
-        quote.premiumAtto
+        review.jobId,
+        review.agentId,
+        review.coverageAtto,
+        review.specHash,
+        review.deadline,
+        review.premiumAtto
       );
+      setReview(null);
       setQuote(null);
       setQuoteN(idleNotice);
       setIssueN({ status: "ok", title: "Policy is live", detail: `tx ${hash}` });
-      setPolJob(jobId);
+      setPolJob(review.jobId);
     } catch (e: any) {
-      setIssueN({ status: "error", title: "Issue failed", detail: e?.message ?? String(e) });
+      setIssueN({ status: "error", title: "Issue failed", detail: errText(e) });
     }
   }
 
@@ -476,7 +642,7 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       setPolN(idleNotice);
     } catch (e: any) {
       setPol(null);
-      setPolN({ status: "error", title: "Lookup failed", detail: e?.message ?? String(e) });
+      setPolN({ status: "error", title: "Lookup failed", detail: errText(e) });
     }
   }
 
@@ -516,6 +682,12 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
             onChange={(e) => setSpecHash(e.target.value)}
             placeholder="Qm…"
           />
+          <p className="hint" style={{ marginTop: 2 }}>
+            Pin your job spec to IPFS (e.g. via <code>web3.storage</code> or{" "}
+            <code>ipfs add</code>) and paste the resulting CID here. It must start
+            with <code>Qm</code> (CIDv0) or <code>bafy</code> (CIDv1) — a mutable
+            URL is rejected so every validator fetches the same bytes.
+          </p>
         </div>
         <div className="field">
           <label htmlFor="deadline">Deadline (ISO, must be in the future)</label>
@@ -527,14 +699,88 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
           </button>
           <button
             className="btn btn-primary"
-            disabled={!quote || issueN.status === "pending"}
+            disabled={!quote || issueN.status === "pending" || !!review}
             onClick={doIssue}
           >
-            {issueN.status === "pending" ? "Issuing…" : quote ? `Issue for ${gen(quote.premiumAtto)} GEN` : "Quote first"}
+            {issueN.status === "pending"
+              ? "Issuing…"
+              : review
+                ? "Review open above"
+                : quote
+                  ? `Review & pay ${gen(quote.premiumAtto)} GEN`
+                  : "Quote first"}
           </button>
         </div>
         <Notice n={quoteN} />
         <Notice n={issueN} />
+        {needPool && (
+          <div className="btn-row">
+            <button className="btn btn-ghost btn-sm" onClick={onGoPools}>
+              Fund the {TIER_NAMES[needPool].toLowerCase()} pool as an LP
+            </button>
+          </div>
+        )}
+
+        {review && (
+          <div className="review">
+            <div className="review-title">Review your policy</div>
+            <div className="kv">
+              <div>
+                <span className="kv-label">Job ID</span>
+                <span className="kv-value mono">{review.jobId}</span>
+              </div>
+              <div>
+                <span className="kv-label">Agent</span>
+                <span className="kv-value mono">{review.agentId}</span>
+              </div>
+              <div>
+                <span className="kv-label">Tier / rate</span>
+                <span className="kv-value">
+                  <span className={`tier-badge t-${review.tier}`}>{TIER_NAMES[review.tier]}</span>{" "}
+                  {RATE_BPS_BY_TIER[review.tier] / 100}% of coverage
+                </span>
+              </div>
+              <div>
+                <span className="kv-label">Coverage</span>
+                <span className="kv-value">{gen(review.coverageAtto)} GEN</span>
+              </div>
+              <div>
+                <span className="kv-label">Premium (paid now)</span>
+                <span className="kv-value">{gen(review.premiumAtto)} GEN</span>
+              </div>
+              <div>
+                <span className="kv-label">Deadline</span>
+                <span className="kv-value mono">{review.deadline}</span>
+              </div>
+              <div>
+                <span className="kv-label">Spec</span>
+                <span className="kv-value mono">{review.specHash || "—"}</span>
+              </div>
+            </div>
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <button
+                className="btn btn-primary"
+                disabled={issueN.status === "pending"}
+                onClick={doConfirmIssue}
+              >
+                {issueN.status === "pending"
+                  ? "Issuing…"
+                  : `Confirm & pay ${gen(review.premiumAtto)} GEN`}
+              </button>
+              <button
+                className="btn btn-ghost"
+                disabled={issueN.status === "pending"}
+                onClick={() => setReview(null)}
+              >
+                Edit
+              </button>
+            </div>
+            <p className="hint">
+              Confirm sends the exact premium shown. A job can only be insured once
+              and this can&apos;t be undone — use Edit to change the terms above.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="panel">
@@ -560,7 +806,9 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
             <div>
               <span className="kv-label">Status</span>
               <span className="kv-value">
-                <span className={`chip ${pol.status}`}>{policyStatusLabel[pol.status]}</span>
+                <span className={`chip ${derivePolicyState(pol).cls}`}>
+                  {derivePolicyState(pol).label}
+                </span>
               </span>
             </div>
             <div>
@@ -594,6 +842,9 @@ function CoveragePanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
               <span className="kv-value mono">{pol.deadline_iso}</span>
             </div>
           </div>
+          {derivePolicyState(pol).action && (
+            <p className="action-tip">💡 {derivePolicyState(pol).action}</p>
+          )}
         )}
         {!pol && polN.status !== "error" && (
           <p className="hint">
@@ -618,6 +869,9 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
   const [cJobId, setCJobId] = useState("job-001");
   const [cN, setCN] = useState<Notice>(idleNotice);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  // When a claim started waiting on validator consensus (epoch ms) -- drives
+  // the ticking "what are the validators doing" hint.
+  const [cSince, setCSince] = useState<number | null>(null);
 
   // -- verdict check
   const [vJobId, setVJobId] = useState("job-001");
@@ -631,16 +885,18 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       const { hash } = await submitDeliverable(addr, dJobId, dHash);
       setDN({ status: "ok", title: "Deliverable recorded", detail: `tx ${hash}` });
     } catch (e: any) {
-      setDN({ status: "error", title: "Submission failed", detail: e?.message ?? String(e) });
+      setDN({ status: "error", title: "Submission failed", detail: errText(e) });
     }
   }
 
   async function doFileClaim() {
     setVerdict(null);
     setCN({ status: "pending", title: "Filing claim — waiting on validator consensus…" });
+    setCSince(Date.now());
     try {
       const addr = await ensureWallet();
       const { hash } = await fileClaim(addr, cJobId);
+      setCSince(null);
       setCN({ status: "ok", title: "Claim finalized", detail: `tx ${hash}` });
       try {
         const v = (await getClaimStatus(cJobId)) as Verdict;
@@ -650,7 +906,8 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
         /* verdict read is a bonus; the tx result already matters */
       }
     } catch (e: any) {
-      setCN({ status: "error", title: "Claim failed", detail: e?.message ?? String(e) });
+      setCSince(null);
+      setCN({ status: "error", title: "Claim failed", detail: errText(e) });
     }
   }
 
@@ -662,7 +919,7 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       setVN(idleNotice);
     } catch (e: any) {
       setVResult(null);
-      setVN({ status: "error", title: "Check failed", detail: e?.message ?? String(e) });
+      setVN({ status: "error", title: "Check failed", detail: errText(e) });
     }
   }
 
@@ -674,6 +931,9 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
 
   return (
     <div className="grid grid-gap-lg">
+      <div className="group-label">
+        <span>Agent actions</span>
+      </div>
       <div className="panel">
         <div className="panel-head">
           <div>
@@ -713,6 +973,9 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
         </p>
       </div>
 
+      <div className="group-label">
+        <span>Buyer actions</span>
+      </div>
       <div className="panel">
         <div className="panel-head">
           <div>
@@ -734,6 +997,7 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
           </button>
         </div>
         <Notice n={cN} />
+        {cN.status === "pending" && cSince && <ConsensusPending since={cSince} />}
         {verdict && <VerdictBox v={verdict} detail={verdictText[verdict]} />}
       </div>
 
@@ -767,7 +1031,7 @@ type TabKey = "agents" | "pools" | "coverage" | "claims";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "agents", label: "Agents" },
-  { key: "pools", label: "Underwriting Pools" },
+  { key: "pools", label: "Pools" },
   { key: "coverage", label: "Coverage" },
   { key: "claims", label: "Claims" },
 ];
@@ -784,6 +1048,12 @@ export default function Home() {
   });
   const [poolsBusy, setPoolsBusy] = useState(true);
   const [poolsError, setPoolsError] = useState<string | null>(null);
+  // Epoch ms of the last successful pool load -- drives the "Updated …" stamp
+  // next to Refresh (item 19 of the UX review).
+  const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
+  // Flips after loadPools has been running >10s, so a flaky network reads as
+  // "slow", not as a hung "…" (StudioNet is documented flaky).
+  const [poolsSlow, setPoolsSlow] = useState(false);
 
   const loadPools = useCallback(async () => {
     setPoolsBusy(true);
@@ -798,16 +1068,27 @@ export default function Home() {
           shares: toBig(i.total_shares),
         };
       } catch (e: any) {
-        setPoolsError(e?.message ?? String(e));
+        setPoolsError(errText(e));
       }
     }
     setPools(next);
+    setLastRefreshed(Date.now());
     setPoolsBusy(false);
   }, []);
 
   useEffect(() => {
     void loadPools();
   }, [loadPools]);
+
+  // 10s stall guard for the hero stat card.
+  useEffect(() => {
+    if (!poolsBusy) {
+      setPoolsSlow(false);
+      return;
+    }
+    const id = setTimeout(() => setPoolsSlow(true), 10_000);
+    return () => clearTimeout(id);
+  }, [poolsBusy]);
 
   const ensureWallet = useCallback(async (): Promise<GenAccount> => {
     if (!ready || !identity) {
@@ -900,13 +1181,19 @@ export default function Home() {
         <div className="stat-card">
           <div className="stat-label">GEN pooled across tiers</div>
           <div className="stat-value">
-            {poolsBusy ? "…" : gen(tvl, 2)}
+            {poolsBusy ? (
+              <span className="skel skel-num" aria-hidden="true" />
+            ) : (
+              gen(tvl, 2)
+            )}
             <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-dim)" }}> GEN</span>
           </div>
           <div className="stat-sub">
-            {poolsBusy
-              ? "Reading live pool state…"
-              : `${loaded} of 4 tiers live · a breach pays from the tier pool that backed it`}
+            {poolsSlow
+              ? "Network may be slow — data is taking a while. Try refreshing."
+              : poolsBusy
+                ? "Reading live pool state…"
+                : `${loaded} of 4 tiers live · a breach pays from the tier pool that backed it`}
           </div>
         </div>
       </section>
@@ -917,9 +1204,14 @@ export default function Home() {
           <h2 className="tiles-title">Underwriting pools</h2>
           <p className="tiles-hint">Deposits back active coverage; premiums accrue to the pool.</p>
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
-          {poolsBusy ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="tiles-right">
+          <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
+            {poolsBusy ? "Refreshing…" : "Refresh"}
+          </button>
+          {lastRefreshed !== null && !poolsBusy && (
+            <span className="ts-note">Updated {new Date(lastRefreshed).toLocaleTimeString()}</span>
+          )}
+        </div>
       </div>
 
       {poolsError && (
@@ -955,6 +1247,9 @@ export default function Home() {
                 <span>
                   LP shares <b>{p ? p.shares.toString() : "—"}</b>
                 </span>
+                <span>
+                  Premium rate <b>{RATE_BPS_BY_TIER[t] / 100}% of cover</b>
+                </span>
               </div>
             </div>
           );
@@ -980,10 +1275,10 @@ export default function Home() {
         <AgentsPanel ensureWallet={ensureWallet} />
       </div>
       <div className={`tabpane ${tab === "pools" ? "active" : ""}`}>
-        <PoolsPanel ensureWallet={ensureWallet} refreshPools={loadPools} />
+        <PoolsPanel ensureWallet={ensureWallet} refreshPools={loadPools} identityReady={ready} />
       </div>
       <div className={`tabpane ${tab === "coverage" ? "active" : ""}`}>
-        <CoveragePanel ensureWallet={ensureWallet} />
+        <CoveragePanel ensureWallet={ensureWallet} onGoPools={() => setTab("pools")} />
       </div>
       <div className={`tabpane ${tab === "claims" ? "active" : ""}`}>
         <ClaimsPanel ensureWallet={ensureWallet} />
@@ -991,8 +1286,6 @@ export default function Home() {
 
       {/* --------------------------------------------------------- footnote */}
       <footer className="footnote">
-        Contract: <b>{AEGIS_ADDRESS ?? "not configured"}</b> · Network: <b>{NET_LABEL}</b>
-        <br />
         Premiums, bonds, and coverage are quoted in exact GEN — the contract rejects any
         amount that doesn&apos;t match precisely. Wallet transactions need GEN on this
         network; reads (tiles, lookups, verdicts) work without one.
