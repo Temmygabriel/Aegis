@@ -71,6 +71,9 @@ within each section; keep this updated as work happens.
 1. ~~Run direct test suite; fix any contract bugs it surfaces.~~ **Done** (26/26 pass).
 2. ~~Deploy `aegis.py` to StudioNet; record address; run CLI e2e.~~ **Done** — `0x4870…1eB`.
 3. ~~Deploy `aegis.py` to Bradbury; record address; run CLI e2e.~~ **Done** — `0x1ad8…1f54`.
-4. Make frontend network-aware + remove duplicate files; verify build via Vercel.
-5. Push repo to github.com/Temmygabriel/Aegis.
+4. ~~Make frontend network-aware + remove duplicate files.~~ **Done** — network via
+   `NEXT_PUBLIC_AEGIS_NETWORK`; Vercel cloud build will verify.
+5. Push repo to github.com/Temmygabriel/Aegis — **BLOCKED on user action**:
+   repo must be created empty at github.com/new, then `git push -u origin main`
+   run by the user (`!` command) since gh is not installed and no token exists.
 6. Help import into Vercel (user action) with env vars set.
