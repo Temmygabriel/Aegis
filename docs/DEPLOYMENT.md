@@ -25,16 +25,25 @@ deployment actually succeeded.
 
 ## Frontend environment variables
 
-The Next.js frontend reads these at build time (set them in Vercel):
+The Next.js frontend reads these at build time (set them in Vercel). The live
+Vercel deployment points at **StudioNet** (gasless):
+
+```env
+NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x48707ab234AB929fc786c3CBaB95248E088Da1eB
+NEXT_PUBLIC_AEGIS_NETWORK=studionet
+```
+
+If you'd rather run the frontend against **Bradbury** (no rate limits), swap in
+its deployment instead — both are verified live:
 
 ```env
 NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54
 NEXT_PUBLIC_AEGIS_NETWORK=testnet-bradbury
 ```
 
-Use the **Bradbury** address for the real frontend so there is no rate limiting
-from StudioNet. Network values follow the `genlayer-js/chains` names:
-`studionet`, `testnetBradbury`, `testnetAsimov`.
+Network values follow the `genlayer-js/chains` names: `studionet`,
+`testnetBradbury`, `testnetAsimov`. Note StudioNet is rate-limited (60 req/min
+per IP) — fine for a demo dashboard, but batch scripts should use Bradbury.
 
 ## How to deploy again
 

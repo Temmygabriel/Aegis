@@ -76,5 +76,9 @@ within each section; keep this updated as work happens.
 5. ~~Push repo to github.com/Temmygabriel/Aegis.~~ **Done** — remote `main` at
    `c63abc5` matches local (pushed via Windows Git Credential Manager, no gh
    needed).
-6. Help import into Vercel (user action) — Root Directory `frontend/`, env vars
-   from docs/DEPLOYMENT.md.
+6. Help import into Vercel (user action) — **Repo imported by user.** Vercel
+   deployment targets **StudioNet**: `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=
+   0x48707ab234AB929fc786c3CBaB95248E088Da1eB`, `NEXT_PUBLIC_AEGIS_NETWORK=studionet`.
+   Root Directory = `frontend/`. Logo + favicon added (`app/icon.svg`,
+   topbar shield). Watch for browser CORS to studio.genlayer.com on first live
+   test — possible issue to fix if reads fail in the browser.

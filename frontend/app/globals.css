@@ -75,8 +75,14 @@ button {
 
 .brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
+}
+
+.brand-logo {
+  width: 26px;
+  height: 26px;
+  flex: none;
 }
 
 .brand-mark {

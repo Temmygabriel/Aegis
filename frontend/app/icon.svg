@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Aegis mark: copper shield (protection) + cream check (insured), on the app's dark ink tile -->
+  <rect width="64" height="64" rx="13" fill="#171c25"/>
+  <path d="M32 7.5 L55 14.5 V32.5 C55 45 46 53.8 32 57 C18 53.8 9 45 9 32.5 V14.5 Z"
+        fill="#b9803f" stroke="#ede6d6" stroke-width="1.5"/>
+  <path d="M21.5 33.5 L29 41 L43 24.5"
+        fill="none" stroke="#10141b" stroke-width="6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

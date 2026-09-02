@@ -115,6 +115,23 @@ export default function Home() {
     <div className="shell">
       <div className="topbar">
         <div className="brand">
+          <svg className="brand-logo" viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="13" fill="#171c25" />
+            <path
+              d="M32 7.5 L55 14.5 V32.5 C55 45 46 53.8 32 57 C18 53.8 9 45 9 32.5 V14.5 Z"
+              fill="#b9803f"
+              stroke="#ede6d6"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M21.5 33.5 L29 41 L43 24.5"
+              fill="none"
+              stroke="#10141b"
+              strokeWidth="6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
           <span className="brand-mark">Aegis</span>
           <span className="brand-sub">Agent Non-Performance Insurance</span>
         </div>
