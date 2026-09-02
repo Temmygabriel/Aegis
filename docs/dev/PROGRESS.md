@@ -10,9 +10,67 @@ within each section; keep this updated as work happens.
   (instant auto-breach via past deadline). Contract lints clean.
 - **Next:** confirm the wallet-integration deploy on the live Vercel site —
   top-right identity chip should replace "Connect wallet", and a register/
-  deposit/issue tx should sign locally with the browser key.
+  deposit/issue tx should sign locally with the browser key. **Live site env
+  must flip** to the canonical StudioNet contract (`0xED90…`) before the
+  submission walkthrough; draft of the GenLayer Project Explorer submission
+  in progress.
 
 ## What's been done
+
+### Bradbury value roundtrip PASS — cost-safe 1 GEN (2026-09-02)
+- After the 20 GEN deposit burn (below), redesigned the Bradbury check to a
+  **1 GEN deposit → withdraw roundtrip** (user-approved budget) on a **fresh**
+  deploy `0xcBF4…` so reviewer-facing evidence is clean. `e2e/roundtrip.js`
+  reuses the main harness so outcome detection matches.
+- **Result: 7/7 PASS.** Deposit 1 GEN ok → pool balance 1 / shares 1 / LP
+  position 1 → withdraw 1 GEN ok → pool drained to 0 / position 0
+  (`e2e/results/bradbury-roundtrip.log`). This proves value moves **in and back
+  out** on a *successful* payable pair on Bradbury — the earlier loss was a
+  `LEADER_TIMEOUT` no-verdict, not a contract bug.
+- **Harness fix for Bradbury receipts:** they carry **no `consensus_data`** —
+  the truth is numeric `txExecutionResult`: `1`=FINISHED_WITH_RETURN
+  (success), `2`=FINISHED_WITH_ERROR (revert), `0`=NOT_VOTED. A
+  `LEADER_TIMEOUT`/`IDLE`/`NOT_VOTED` tx reached no verdict → reported
+  `undetermined`, never `ok`. The old run had mislabeled Bradbury reverts as
+  "ok (ACCEPTED)". `submitAndWait` now unions StudioNet (agree-vote rule) and
+  Bradbury (numeric) detection.
+
+### Full real-network E2E harness (2026-09-02)
+- Built `e2e/run.js` on **genlayer-js** (the same lib the frontend uses) because
+  the `genlayer` CLI cannot attach `value` to contract writes, so payable calls
+  (deposit / issue_policy / file_claim) need an SDK path. Subcommands:
+  `keys | deploy | probe | e2e [--network …] [--address …]`. Deterministic 28-step
+  scenario mirroring `tests/direct/test_aegis.py`, with **unique policy keys per
+  run** and amounts asserted in GEN.
+- **Revert detection fixed (was a false-positive bug):** a reverted StudioNet
+  call still finalizes ACCEPTED/FINALIZED with `result_name=MAJORITY_AGREE`. The
+  truth is per-validator (`consensus_data.validators[]`): only validators that
+  voted `agree` decide the committed outcome — `reverted ⇔ an agreeing
+  validator's execution_result == "ERROR"`. Idle validators routinely report
+  `execution_result=ERROR` (they timed out / failed to run), so the earlier
+  "any ERROR ⇒ revert" rule mislabeled successful `submit_deliverable` as
+  reverted. Validated against ground-truth receipts (success submit, dup-register
+  revert, fresh register).
+- **Numeric reads fixed:** `readContract` returns u256 as number/string, never
+  bigint — added `toBig`/`EQ` coercion for all balance/share/position/premium
+  asserts.
+- **StudioNet result: 28/28 PASS** on a fresh deployment
+  (`0xED90…`, deploy → register → deposit math → quote → 2× payable issue →
+  deliverable → negative gates → expire → auto-breach claim upheld → payout →
+  counters → full LP withdraw → pool drained to 0).
+- **Bradbury result (2026-09-02):** deploy succeeded (fresh `0xcE82…`, roles
+  funded lp 25 / agent 3 / buyer 15 GEN) but the **full value e2e was aborted**
+  — the 20 GEN LP deposit hit `LEADER_TIMEOUT` (every validator `NOT_VOTED`,
+  `result_name=IDLE`) and the GEN is **orphaned in the contract ledger (20.06)**
+  with pool state 0. Investigation proved a hard GenLayer behavior on BOTH
+  networks: **value on a payable call moves at submission and is NOT refunded if
+  the execution reverts or never commits** (StudioNet residue 2.06 = a
+  past-deadline-issue premium 0.06 + a premature-claim bond 2; the *successful*
+  claim's bond WAS returned). No contract path can recover it (no shares, no
+  sweep). Bradbury receipts are a different shape (no `consensus_data`): use
+  numeric `txExecutionResult` (2 = FINISHED_WITH_ERROR). **Lesson:** never attach
+  value to an expected-revert call; cap live value spends (~1 GEN); get user OK
+  before spending faucet GEN. Cost-safe Bradbury plan in task #6.
 
 ### Wallet integration — honest browser identity (2026-09-02)
 - Implemented `aegis-wallet-integration.md` (design distilled from the Rigor
@@ -94,10 +152,13 @@ within each section; keep this updated as work happens.
   (`frontend/aegisClient.ts`, `frontend/page.tsx`) to remove before push.
 
 ## Deployments
-- StudioNet address: `0x48707ab234AB929fc786c3CBaB95248E088Da1eB`
-  (deployed 2026-09-02; e2e verified: deploy → read → register write → read-back)
-- Bradbury address: `0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54`
-  (deployed 2026-09-02; e2e verified: deploy → read → register write → read-back)
+- **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
+  (deployed 2026-09-02; full e2e **28/28 PASS**, pool drained to 0)
+- **Bradbury (canonical):** `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2`
+  (deployed 2026-09-02; **1 GEN roundtrip 7/7 PASS**)
+- Superseded (older deploys, do not use): StudioNet `0x4870…`;
+  Bradbury `0x1ad8…` (first), `0xcE82…` (holds an orphaned 20.06 GEN ledger
+  from the LEADER_TIMEOUT burn — left as-is, no recovery path exists).
 
 ## Documentation (created 2026-09-02)
 - `docs/DEPLOYMENT.md` — per-network addresses, redeploy + verify steps, network quirks.

@@ -7,21 +7,26 @@ deployment actually succeeded.
 
 | Network | Chain ID | Contract address | Deployed | E2E verified |
 |---------|----------|------------------|----------|--------------|
-| StudioNet | 61999 | `0x48707ab234AB929fc786c3CBaB95248E088Da1eB` | 2026-09-02 | ✅ deploy → read → register write → read-back |
-| Testnet Bradbury | 4221 | `0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54` | 2026-09-02 | ✅ deploy → read → register write → read-back |
+| StudioNet | 61999 | `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` | 2026-09-02 | ✅ **28/28 steps** — full lifecycle (`e2e/results/studionet-e2e.log`) |
+| Testnet Bradbury | 4221 | `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` | 2026-09-02 | ✅ **7/7 steps** — 1 GEN deposit→withdraw roundtrip (`e2e/results/bradbury-roundtrip.log`) |
+
+> These are the **canonical, latest** addresses — both deployed from the same
+> repo `intelligent-contracts/aegis.py` and value-tested live. Earlier superseded
+> deployments (`0x4870…` StudioNet, `0x1ad8…` / `0xcE82…` Bradbury) are archived
+> in git history / `docs/dev/PROGRESS.md` and should **not** be used.
 
 - Deploy account (`default`): `0xa881365a99d77be904e414ae610e22938bb0466d`
-- Both deployed instances were smoke-tested the same way:
-  1. `get_pool_info("unrated")` returns a fresh pool (all zeros).
-  2. `register("<agent>")` write is accepted by consensus.
-  3. `get_profile("<agent>")` reads back the profile (owner, tier, timestamps).
+- The full 28-step StudioNet run exercised register, LP deposit, quoting,
+  2× payable policy issuance, deliverable submit, all negative/gate reverts,
+  expire, auto-breach claim + payout, counters, and LP withdraw to pool 0.
+- The Bradbury roundtrip proved value moves **in and back out** on a successful
+  payable pair (deposit 1 GEN → pool 1 GEN → withdraw 1 GEN → pool 0).
 
 ### Explorer links
 
-- Bradbury explorer:
-  `https://explorer-bradbury.genlayer.com/address/0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54`
-- StudioNet is hosted at studio.genlayer.com; contract views are queryable via
-  the `genlayer call` CLI (see below).
+- StudioNet: `https://explorer-studio.genlayer.com/address/0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
+- Bradbury:
+  `https://explorer-bradbury.genlayer.com/address/0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2`
 
 ## Frontend environment variables
 
@@ -29,7 +34,7 @@ The Next.js frontend reads these at build time (set them in Vercel). The live
 Vercel deployment points at **StudioNet** (gasless):
 
 ```env
-NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x48707ab234AB929fc786c3CBaB95248E088Da1eB
+NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843
 NEXT_PUBLIC_AEGIS_NETWORK=studionet
 ```
 
@@ -37,7 +42,7 @@ If you'd rather run the frontend against **Bradbury** (no rate limits), swap in
 its deployment instead — both are verified live:
 
 ```env
-NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54
+NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2
 NEXT_PUBLIC_AEGIS_NETWORK=testnet-bradbury
 ```
 

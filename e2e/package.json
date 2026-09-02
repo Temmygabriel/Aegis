@@ -1,0 +1,13 @@
+{
+  "name": "aegis-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-network end-to-end harness for the Aegis contract (StudioNet + Bradbury). Signs locally with genlayer-js, mirrors frontend/lib/aegisClient.ts.",
+  "dependencies": {
+    "genlayer-js": "^1.2.0"
+  },
+  "scripts": {
+    "e2e": "node e2e/run.js"
+  }
+}

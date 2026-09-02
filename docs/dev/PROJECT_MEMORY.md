@@ -37,9 +37,10 @@ Four moving parts in the contract:
 
 ## Deployed contract addresses
 
-- **StudioNet:** `0x48707ab234AB929fc786c3CBaB95248E088Da1eB` (deployed 2026-09-02)
-  - e2e verified: `get_pool_info("unrated")` returns fresh pool; `register("agent-e2e")`
-    write accepted (consensus) and `get_profile("agent-e2e")` reads back the profile.
+- **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` (deployed 2026-09-02)
+  - **Full e2e 28/28 PASS** (`e2e/results/studionet-e2e.log`): register, LP deposit,
+    2× payable issue, deliverable, negative gates, expire, auto-breach claim +
+    payout, counters, LP withdraw to pool 0.
   - StudioNet does NOT support `genlayer schema` ("not supported on this network").
   - StudioNet RPC is flaky: read/call sometimes fail with ECONNRESET / SSL session-id
     errors. Just retry — they succeed on the next attempt.
@@ -47,10 +48,16 @@ Four moving parts in the contract:
     (`2026-09-02T04:22:05.627206Z`). The deadline guard compares ISO strings
     lexicographically, so sub-second slop is possible but not exploitable
     (the window is about days, not milliseconds).
-- **Bradbury:** `0x1ad8bbaC717EBDaFB250c5c845f245d0f9dE1f54` (deployed 2026-09-02)
-  - e2e verified: `get_pool_info("unrated")` returns fresh pool; `register("agent-bradbury")`
-    write accepted and profile reads back. Account "default" spent a little GEN.
+- **Bradbury (canonical):** `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` (deployed 2026-09-02)
+  - **1 GEN deposit→withdraw roundtrip 7/7 PASS** (`e2e/results/bradbury-roundtrip.log`):
+    deposit 1 GEN → pool 1 → withdraw 1 GEN → pool 0. Value returns on success.
   - Bradbury `registered_at` is whole seconds (`2026-09-02T04:26:37Z`, no fraction).
+  - Bradbury receipts have NO `consensus_data` — outcome is numeric
+    `txExecutionResult` (1=return/ok, 2=error/revert, 0=NOT_VOTED); a
+    `LEADER_TIMEOUT`/`IDLE` tx is undetermined, never ok.
+- **Superseded (do not use):** StudioNet `0x4870…`; Bradbury `0x1ad8…` (first)
+  and `0xcE82…` (holds orphaned 20.06 GEN from a LEADER_TIMEOUT deposit burn;
+  no recovery path — see PROGRESS.md).
 
 The frontend needs the address via `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` (and
 `NEXT_PUBLIC_AEGIS_NETWORK` for which network) — see `frontend/.env.example`.
