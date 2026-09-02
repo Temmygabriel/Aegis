@@ -19,10 +19,11 @@ within each section; keep this updated as work happens.
   pool tiles, stat-card skeleton + slow-load timeout, refresh timestamp, tab
   relabel, footnote dedupe. (#7 local activity log deferred; #18 zero-display
   convention already consistent.) **Not yet visually confirmed on the Vercel build.**
-- **Next:** flip the **live Vercel env** to the canonical StudioNet contract
-  (`NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`)
-  + rebuild, then visually verify the UX round; draft of the GenLayer Project
-  Explorer submission in progress.
+- **Done (2026-09-02):** live Vercel env flipped to the canonical StudioNet
+  contract (`0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`) + redeployed — site
+  and repo now point at the same tested deployment.
+- **Next:** visually verify the UX round on the live site; draft of the
+  GenLayer Project Explorer submission in progress.
 
 ## What's been done
 
@@ -189,9 +190,9 @@ within each section; keep this updated as work happens.
 - `genvm-lint validate` still blocked by SDK 404 (environment, not the
   contract) — deployment + tests are the authoritative validation.
 - Frontend is network- and address-driven by env vars
-  (`NEXT_PUBLIC_AEGIS_NETWORK`, `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS`); the
-  **live Vercel site still points at the old StudioNet deploy `0x4870…`** and
-  must be flipped to the canonical `0xED90…` before the submission walkthrough.
+  (`NEXT_PUBLIC_AEGIS_NETWORK`, `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS`). Live
+  Vercel env **flipped to the canonical StudioNet deploy `0xED90…`**
+  (2026-09-02); UX-round changes still pending a visual pass on the live build.
 
 ## Deployments
 - **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
