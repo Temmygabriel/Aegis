@@ -90,6 +90,16 @@ The frontend needs the address via `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` (and
   one block). Guard added 2026-09-02; regression test
   `test_issue_policy_rejects_past_deadline`.
 
+## Frontend preferences (user is opinionated about the UI)
+
+- The first paper/ledger look was called "total bullshit." The approved
+  direction is **bold modern**: dark navy console (`#0a0e19` family) with a
+  copper (`#d98e45`/`#f4b877`) glow, glassy translucent panels, big tabular
+  numbers, and a tabbed workbench (Agents / Pools / Coverage / Claims). No raw
+  JSON dumps — actions show structured notices, lookups show key/value rows.
+- Keep the Vercel deployment pointed at **StudioNet**; Bradbury stays in docs.
+- Do not surprise the user with a light theme again without asking.
+
 ## Related
 
 - `docs/dev/PROGRESS.md` — running log of work, status, and next steps.

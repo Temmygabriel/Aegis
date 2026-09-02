@@ -13,6 +13,20 @@ within each section; keep this updated as work happens.
 
 ## What's been done
 
+### Frontend UI redesign — "bold modern" (2026-09-02)
+- User rejected the first UI ("total bullshit") and picked a **bold modern**
+  direction: dark navy console + copper glow, glassy panels, big numbers,
+  tabbed workbench instead of a wall of cards.
+- Rewrote `frontend/app/globals.css` (new token set + components) and
+  `frontend/app/page.tsx` (hero + live pool tiles + Agents/Pools/Coverage/
+  Claims tabs). Contract calls are **unchanged** — same functions, same args —
+  so no new on-chain behavior was introduced.
+- Feedback is now structured notices (pending spinner / green ok / red error)
+  instead of raw `JSON.stringify` dumps; lookups render as key/value rows with
+  tier badges and status chips; pool tiles + TVL load live on mount; pool tiles
+  refresh after deposits/withdraws; claims auto-show their verdict after filing.
+- Wallet connect lives in the topbar and is shared by every tab.
+
 ### Investigation
 - Read the whole repo: contract (`aegis.py`), frontend (`app/page.tsx`,
   `lib/aegisClient.ts`), `README.md`, `docs/UX_FLOW.md`.
@@ -68,17 +82,8 @@ within each section; keep this updated as work happens.
 - `docs/dev/` — internal working notes (PROGRESS.md, PROJECT_MEMORY.md).
 
 ## Next steps
-1. ~~Run direct test suite; fix any contract bugs it surfaces.~~ **Done** (26/26 pass).
-2. ~~Deploy `aegis.py` to StudioNet; record address; run CLI e2e.~~ **Done** — `0x4870…1eB`.
-3. ~~Deploy `aegis.py` to Bradbury; record address; run CLI e2e.~~ **Done** — `0x1ad8…1f54`.
-4. ~~Make frontend network-aware + remove duplicate files.~~ **Done** — network via
-   `NEXT_PUBLIC_AEGIS_NETWORK`; Vercel cloud build will verify.
-5. ~~Push repo to github.com/Temmygabriel/Aegis.~~ **Done** — remote `main` at
-   `c63abc5` matches local (pushed via Windows Git Credential Manager, no gh
-   needed).
-6. Help import into Vercel (user action) — **Repo imported by user.** Vercel
-   deployment targets **StudioNet**: `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=
-   0x48707ab234AB929fc786c3CBaB95248E088Da1eB`, `NEXT_PUBLIC_AEGIS_NETWORK=studionet`.
-   Root Directory = `frontend/`. Logo + favicon added (`app/icon.svg`,
-   topbar shield). Watch for browser CORS to studio.genlayer.com on first live
-   test — possible issue to fix if reads fail in the browser.
+1. Review the redesigned dashboard on the Vercel build; check logo/favicon,
+   pool tile reads, and each tab. Watch for browser CORS to studio.genlayer.com.
+2. ~~Push repo to github.com/Temmygabriel/Aegis.~~ **Done** — remote `main`
+   matches local.
+3. Keep StudioNet as the live frontend target (Bradbury stays documented only).
