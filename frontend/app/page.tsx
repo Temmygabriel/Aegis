@@ -7,7 +7,6 @@ import {
   CLAIM_BOND_ATTO,
   VALID_TIERS,
   Tier,
-  connectWallet,
   register,
   getProfile,
   quotePremium,
@@ -24,6 +23,9 @@ import {
   formatAttoToGen,
   toBig,
 } from "@/lib/aegisClient";
+import { useIdentity } from "@/app/providers";
+import { IdentityBadge } from "@/components/IdentityBadge";
+import type { GenAccount } from "@/lib/identity";
 
 /* ------------------------------------------------------------------ utils */
 
@@ -37,8 +39,6 @@ const TIER_NAMES: Record<Tier, string> = {
   silver: "Silver",
   gold: "Gold",
 };
-
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** Format atto-GEN to a tidy GEN string with trailing zeros trimmed. */
 function gen(atto: bigint | number, decimals = 4): string {
@@ -91,7 +91,7 @@ function VerdictBox({ v, detail }: { v: Verdict; detail: string }) {
   );
 }
 
-type EnsureWallet = () => Promise<`0x${string}`>;
+type EnsureWallet = () => Promise<GenAccount>;
 
 /* ------------------------------------------------ domain shapes from reads */
 
@@ -289,8 +289,8 @@ function PoolsPanel({
     setWithdrawN(idleNotice);
     setStakeN({ status: "pending", title: "Reading your stake…" });
     try {
-      const addr = await ensureWallet();
-      const shares = toBig(await getLpPosition(stakeTier, addr));
+      const acct = await ensureWallet();
+      const shares = toBig(await getLpPosition(stakeTier, acct.address));
       setPosition(shares);
       if (shares === 0n) {
         setStakeN({ status: "ok", title: `No stake in ${TIER_NAMES[stakeTier].toLowerCase()}` });
@@ -773,8 +773,7 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 export default function Home() {
-  const [address, setAddress] = useState<`0x${string}` | null>(null);
-  const [connecting, setConnecting] = useState(false);
+  const { identity, ready } = useIdentity();
   const [tab, setTab] = useState<TabKey>("agents");
 
   const [pools, setPools] = useState<Record<Tier, PoolSnap>>({
@@ -810,23 +809,12 @@ export default function Home() {
     void loadPools();
   }, [loadPools]);
 
-  const ensureWallet = useCallback(async () => {
-    if (address) return address;
-    const a = await connectWallet();
-    setAddress(a);
-    return a;
-  }, [address]);
-
-  async function handleConnect() {
-    setConnecting(true);
-    try {
-      await ensureWallet();
-    } catch (e: any) {
-      window.alert(e?.message ?? String(e));
-    } finally {
-      setConnecting(false);
+  const ensureWallet = useCallback(async (): Promise<GenAccount> => {
+    if (!ready || !identity) {
+      throw new Error("Identity isn't ready yet — give it a second and try again.");
     }
-  }
+    return identity.account;
+  }, [identity, ready]);
 
   const tvl = TIERS.reduce((acc, t) => {
     const p = pools[t];
@@ -876,13 +864,7 @@ export default function Home() {
             <span className="dot" />
             {NET_LABEL}
           </span>
-          <button
-            className={`wallet-pill ${address ? "connected" : ""}`}
-            onClick={address ? undefined : handleConnect}
-            disabled={connecting}
-          >
-            {address ? short(address) : connecting ? "Connecting…" : "Connect wallet"}
-          </button>
+          <IdentityBadge />
         </div>
       </header>
 

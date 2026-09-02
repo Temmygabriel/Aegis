@@ -3,6 +3,7 @@
 import { createClient } from "genlayer-js";
 import { studionet, testnetBradbury } from "genlayer-js/chains";
 import { TransactionStatus, ExecutionResult } from "genlayer-js/types";
+import type { GenAccount } from "./identity";
 
 // ---------------------------------------------------------------------------
 // Network selection
@@ -29,45 +30,19 @@ export const CLAIM_BOND_ATTO = 2n * 10n ** 18n;
 export const VALID_TIERS = ["unrated", "bronze", "silver", "gold"] as const;
 export type Tier = (typeof VALID_TIERS)[number];
 
-declare global {
-  interface Window {
-    ethereum?: any;
-  }
-}
-
 /** Read-only client -- talks directly to the network's RPC, no wallet needed. */
 export function getReadClient() {
   return createClient({ chain: CHAIN });
 }
 
-/** Write client -- signs through whatever wallet is connected (MetaMask). */
-export function getWriteClient(account: `0x${string}`) {
-  return createClient({
-    chain: CHAIN,
-    account,
-    provider: typeof window !== "undefined" ? window.ethereum : undefined,
-  });
-}
-
-export async function connectWallet(): Promise<`0x${string}`> {
-  if (typeof window === "undefined" || !window.ethereum) {
-    throw new Error("No wallet found. Install MetaMask to use Aegis.");
-  }
-  const accounts: string[] = await window.ethereum.request({
-    method: "eth_requestAccounts",
-  });
-  if (!accounts?.[0]) {
-    throw new Error("Wallet connection was rejected.");
-  }
-  const address = accounts[0] as `0x${string}`;
-
-  // Make sure the wallet is actually pointed at our network before we try to
-  // write to it -- otherwise writeContract throws a confusing chain-mismatch
-  // error deep in viem instead of a clear one here.
-  const client = getWriteClient(address);
-  await client.connect(NETWORK_NAME);
-
-  return address;
+// Write client. The "account" here is a genlayer-js / viem *Account object*
+// created in the browser from our own private key (see lib/identity.ts), NOT a
+// MetaMask address -- GenLayer studionet transactions are signed locally and
+// MetaMask cannot sign them. With the account passed into createClient there is
+// no provider and no .connect() call: viem signs with the account's key and
+// sends straight to the RPC.
+export function getWriteClient(account: GenAccount) {
+  return createClient({ chain: CHAIN, account });
 }
 
 function requireAddress(): `0x${string}` {
@@ -90,21 +65,19 @@ async function read<T = any>(functionName: string, args: any[] = []): Promise<T>
 }
 
 async function write(
-  account: `0x${string}`,
+  account: GenAccount,
   functionName: string,
   args: any[],
   value: bigint = 0n
 ): Promise<{ hash: `0x${string}`; result: any }> {
-  // The client is already configured with `account` + the wallet provider
-  // (see getWriteClient), so writeContract's own `account` field -- which
-  // expects a viem Account object, not a bare address -- is left unset and
-  // the client's configured signer is used instead.
   const client = getWriteClient(account);
   const hash = await client.writeContract({
     address: requireAddress(),
     functionName,
     args,
-    value,
+    // Never send an explicit value:0 on a payable call -- GenLayer's RPC
+    // rejects it. Only attach `value` when it is strictly positive.
+    ...(value > 0n ? { value } : {}),
   });
 
   const receipt = await client.waitForTransactionReceipt({
@@ -128,7 +101,7 @@ async function write(
 // Agent identity & reputation
 // ---------------------------------------------------------------------------
 
-export function register(account: `0x${string}`, agentId: string) {
+export function register(account: GenAccount, agentId: string) {
   return write(account, "register", [agentId]);
 }
 
@@ -160,7 +133,7 @@ export function quotePremium(agentId: string, coverageAtto: bigint) {
 }
 
 export function issuePolicy(
-  account: `0x${string}`,
+  account: GenAccount,
   jobId: string,
   agentId: string,
   coverageAtto: bigint,
@@ -177,14 +150,14 @@ export function issuePolicy(
 }
 
 export function submitDeliverable(
-  account: `0x${string}`,
+  account: GenAccount,
   jobId: string,
   deliverableHash: string
 ) {
   return write(account, "submit_deliverable", [jobId, deliverableHash]);
 }
 
-export function expirePolicy(account: `0x${string}`, jobId: string) {
+export function expirePolicy(account: GenAccount, jobId: string) {
   return write(account, "expire_policy", [jobId]);
 }
 
@@ -205,11 +178,11 @@ export function getPolicy(jobId: string) {
 // LP pools
 // ---------------------------------------------------------------------------
 
-export function deposit(account: `0x${string}`, tier: Tier, amountAtto: bigint) {
+export function deposit(account: GenAccount, tier: Tier, amountAtto: bigint) {
   return write(account, "deposit", [tier], amountAtto);
 }
 
-export function withdraw(account: `0x${string}`, tier: Tier, shares: bigint) {
+export function withdraw(account: GenAccount, tier: Tier, shares: bigint) {
   return write(account, "withdraw", [tier, shares]);
 }
 
@@ -230,7 +203,7 @@ export function getLpPosition(tier: Tier, address: string) {
 // Claims -- the one call that triggers GenLayer consensus
 // ---------------------------------------------------------------------------
 
-export function fileClaim(account: `0x${string}`, jobId: string) {
+export function fileClaim(account: GenAccount, jobId: string) {
   return write(account, "file_claim", [jobId], CLAIM_BOND_ATTO);
 }
 

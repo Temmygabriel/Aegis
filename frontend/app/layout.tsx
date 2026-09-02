@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Providers } from "./providers";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -39,7 +40,7 @@ export default function RootLayout({
       <body
         className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

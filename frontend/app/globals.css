@@ -939,3 +939,183 @@ select.input option {
     grid-column: auto;
   }
 }
+
+/* ================================================= browser identity badge === */
+
+.muted {
+  color: var(--text-faint);
+}
+
+.btn-danger {
+  color: var(--err);
+  background: rgba(255, 122, 107, 0.06);
+  border: 1px solid rgba(255, 122, 107, 0.35);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(255, 122, 107, 0.14);
+  color: #ffb3ab;
+  border-color: rgba(255, 122, 107, 0.6);
+}
+
+.idchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  padding: 7px 6px 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-strong);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.idchip:hover:not(:disabled),
+.idchip.open {
+  border-color: rgba(217, 142, 69, 0.65);
+  background: rgba(217, 142, 69, 0.07);
+  box-shadow: 0 0 0 3px rgba(217, 142, 69, 0.1);
+}
+
+.idchip .seal {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #f7c489, var(--copper-deep));
+  box-shadow: 0 0 8px rgba(217, 142, 69, 0.85);
+  flex: none;
+}
+
+.idchip-addr {
+  letter-spacing: 0.02em;
+}
+
+.idcaret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: var(--text-faint);
+  border-left: 1px solid var(--line);
+  padding-left: 9px;
+  min-width: 14px;
+}
+
+.idchip .idcaret {
+  margin-left: 0;
+}
+
+/* -------------------------------------------------------------- the menu --- */
+
+.idmenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    var(--bg1);
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.7), 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 60;
+}
+
+.idsec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.idlabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--text-faint);
+}
+
+.idsep {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 12px 0;
+}
+
+.idwell-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.idwell {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idwell.idkey {
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.55;
+  cursor: text;
+}
+
+.idhint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.idnote {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  background: rgba(217, 142, 69, 0.08);
+  border-left: 2px solid var(--copper);
+  border-radius: 0 8px 8px 0;
+  padding: 9px 12px;
+}
+
+.idstack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iderr {
+  font-size: 11px;
+  color: var(--err);
+  line-height: 1.45;
+}
+
+.idok {
+  font-size: 11px;
+  color: var(--ok);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.idok b {
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.idwide {
+  justify-content: center;
+  width: 100%;
+}
