@@ -5,6 +5,27 @@ within each section; keep this updated as work happens.
 
 ## Status (2026-09-03)
 
+- **Done (Shape A gaming hardening shipped — patch + full redeploy + re-seed):**
+  the final proactive review's finding 1 (self-deal auto-breach drain) is
+  **patched**, not deferred: `issue_policy` now (a) rejects the agent's own
+  owner as buyer, (b) parses deadlines to epoch seconds with a 60 s minimum
+  horizon (no ~1-second drain loops), and (c) caps coverage to 10% of the tier
+  pool at issue so a policy label is always the most one claim can pay.
+  Contract committed (`ba7db2e`), suite **28/28**, `genvm-lint` clean. Both
+  contracts **redeployed to fresh canonical addresses** and verified live:
+  StudioNet `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` — full e2e **28/28
+  PASS** on the new address — and Bradbury `0x79C15889D5070321176994373C440778a9eC47c1`
+  (deploy tx `0x14222a…`, read-verified; no full e2e on Bradbury by design).
+  Live board **re-seeded** to the §05 numbers on the new StudioNet contract
+  (Unrated 10.06 / locked 1.00, Bronze 5, Silver 3, Gold 2; seed ids
+  `agent-live-1788435546808` / `job-live-1788435546808`). Frontend seed gate,
+  `frontend/.env.example` and `docs/DEPLOYMENT.md` re-pointed (`de3d242`,
+  parse gate clean). Remaining disclosed residual (two-wallet drip, bronze
+  breach-rate gate) and the judged-path QA gap are recorded in the Final
+  review section below. **One user action left:** flip the Vercel
+  `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` to `0x605e5B…` and redeploy the project
+  (no local CLI token).
+
 - **Done (submission + demo docs rewritten to the final UI; working folder
   cleaned):** `aegis-submission-note.md` rewritten in the Rigor style
   (`genlayer-project-explorer-submission.md` in the same folder): a simple §05
@@ -269,81 +290,94 @@ within each section; keep this updated as work happens.
   contract) — deployment + tests are the authoritative validation.
 - Frontend is network- and address-driven by env vars
   (`NEXT_PUBLIC_AEGIS_NETWORK`, `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS`). Live
-  Vercel env **flipped to the canonical StudioNet deploy `0xED90…`**
-  (2026-09-02); UX-round changes still pending a visual pass on the live build.
+  Vercel env points at StudioNet; after the 2026-09-03 Shape A redeploy the
+  env must be **flipped to `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4`** and
+  the project redeployed (no local CLI token — dashboard action).
 
 ## Deployments
-- **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
-  (deployed 2026-09-02; full e2e **28/28 PASS**, pool drained to 0)
-- **Bradbury (canonical):** `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2`
-  (deployed 2026-09-02; **1 GEN roundtrip 7/7 PASS**)
-- Superseded (older deploys, do not use): StudioNet `0x4870…`;
-  Bradbury `0x1ad8…` (first), `0xcE82…` (holds an orphaned 20.06 GEN ledger
-  from the LEADER_TIMEOUT burn — left as-is, no recovery path exists).
+- **StudioNet (canonical, Shape A):** `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4`
+  (deployed 2026-09-03, tx `0xf8e416dc…c6373d8fe`; full e2e **28/28 PASS** on
+  this address, pool drained to 0 then re-seeded — see Live seeded state).
+- **Bradbury (canonical, Shape A):** `0x79C15889D5070321176994373C440778a9eC47c1`
+  (deployed 2026-09-03, tx `0x14222a14…3832350a`; read-verified live).
+- Superseded (2026-09-02 unpatched generation, do not use): StudioNet
+  `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` (28/28 e2e on old source);
+  Bradbury `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` (1 GEN roundtrip 7/7).
+- Older still (do not use): StudioNet `0x4870…`; Bradbury `0x1ad8…` (first),
+  `0xcE82…` (holds an orphaned 20.06 GEN ledger from the LEADER_TIMEOUT burn —
+  left as-is, no recovery path exists).
 
-## Live seeded state (2026-09-03)
-- **Purpose:** the war-room board read `0 GEN` on every tier after the e2e
-  drained the pools. Seeded real activity on the canonical StudioNet contract
-  so the live UI displays funded pools + a locked-exposure sliver.
-- **Seeded via `e2e/seed-live.js`** (new, committed): registered a fresh agent
-  (`agent-live-…`, fresh wallet key in `e2e/live-keys.json`, git-ignored), LP
-  deposited 10/5/3/2 GEN into unrated/bronze/silver/gold, then the buyer role
-  issued 1 GEN of cover (`job-live-…`, active, deadline ~1 h out).
+## Live seeded state (2026-09-03, re-seeded on the Shape A deploy)
+- **Purpose:** after each e2e drains the pools, `e2e/seed-live.js` re-seeds real
+  activity on the canonical StudioNet contract so the live UI displays funded
+  pools + a locked-exposure sliver (the §05 board numbers).
+- **Re-seeded via `e2e/seed-live.js`** after the 2026-09-03 redeploy: fresh
+  agent `agent-live-1788435546808` (wallet key in `e2e/live-keys.json`,
+  git-ignored), LP deposited 10/5/3/2 GEN into unrated/bronze/silver/gold, then
+  the buyer role issued 1 GEN of cover (`job-live-1788435546808`, active,
+  deadline ~1 h out).
 - **Live board now reads:** Unrated `10.06 GEN` (locked sliver `1.00 GEN`),
-  Bronze `5`, Silver `3`, Gold `2`. Tx hashes in the run log above (register
-  `0x2ae8…`, deposits `0x78b9…`/`0xda7d…`/`0xc74b…`/`0x9dcf…`, issue
-  `0x0da1…`).
+  Bronze `5`, Silver `3`, Gold `2`. Seed tx hashes: register `0x121e62b3…`,
+  deposits `0x3d8f686c…` (unrated 10) / `0xbd5ff4f2…` (bronze 5) /
+  `0xcc25f7d7…` (silver 3) / `0x82ca7662…` (gold 2), issue `0xd41dab57…`.
 - The seeded policy's 1 GEN stays locked until claimed/expired — residue,
   noted; the demo take can run its own register→deposit→issue→claim loop on
   top (Unrated ≥ 10 GEN, so a 1 GEN payout still clears the 10% cap).
 
-## Final proactive review (2026-09-03, pre-submission)
+## Final proactive review (2026-09-03) + Shape A patch + redeploy
 
 Adversarial re-read of `aegis.py` for every "reviewer could reject this" angle
 (sybil, gamed logic, economic drain, honest-claims accuracy), plus a test-suite
-reconfirmation: `python -m pytest tests/direct/test_aegis.py -q` → **26 passed
-in ~2.4s** at the current head.
+reconfirmation. Finding 1 below (self-deal auto-breach drain) was **patched the
+same day — Shape A** (see `docs/CONTRACT.md` items 7/9/10) — and both contracts
+were **redeployed to fresh canonical addresses** (`docs/DEPLOYMENT.md`): StudioNet
+`0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` (e2e **28/28 PASS**) and Bradbury
+`0x79C15889D5070321176994373C440778a9eC47c1` (read-verified). The live board was
+re-seeded to the §05 numbers. Suite: `python -m pytest tests/direct/test_aegis.py
+-q` → **28 passed**; `genvm-lint` clean.
 
 ### Confirmed present (each has a regression test or a code-level trace)
-- Past-deadline issuance blocked (`test_issue_policy_rejects_past_deadline`).
+- Past **and** too-soon (< 60 s) deadlines blocked
+  (`test_issue_policy_rejects_past_and_too_soon_deadlines`); a 90 s boundary
+  still issues.
+- Self-buy rejected — the agent's own owner cannot insure its job
+  (`test_issue_policy_rejects_self_buy`).
+- Coverage capped to the single-claim pool share at issue
+  (`test_issue_policy_coverage_capped_to_single_claim_share`); payout still
+  capped at 10% of the pool at claim time even when an earlier payout shrank the
+  pool (`test_claim_payout_capped_at_10pct_pool`).
 - Empty-pool first-depositor closed: `issue_policy` requires pool_value > 0 and
-  coverage ≤ pool; `deposit` hard-aborts on any unattributed balance with no
-  shares.
+  coverage ≤ 10% of pool; `deposit` hard-aborts on any unattributed balance with
+  no shares.
 - LPs cannot withdraw under live coverage (locked-exposure gate,
-  `test_withdraw_blocks_under_locked_exposure`); coverage is always ≤ pool
-  value at issuance.
+  `test_withdraw_blocks_under_locked_exposure`).
 - Evidence is content-addressed only (CIDv0/v1 shape rejects mutable URLs) and
   is agent-submitted only (a buyer can never attach their own deliverable).
 - Exact-premium enforcement, exact 2 GEN claim bond (refunded on upheld,
-  forfeited to pool on rejected), payout cap 10% of the tier pool per claim,
-  one wallet binds one agent forever, `_normalize_key` blocks case-variant
-  identity squatting.
+  forfeited to pool on rejected), one wallet binds one agent forever,
+  `_normalize_key` blocks case-variant identity squatting.
 - Sybil ladder: min distinct buyer addresses + tenure days + min real spend per
   tier. Honest limit (a chain cannot prove one wallet is one person) is stated
   in the contract docstring and the §03 submission text.
 
-### New findings — residual, deferred to v1.1 on purpose (see below)
-1. **Self-deal auto-breach drain (real, medium):** a buyer plus its own
-   never-delivering agent (two wallets) can drain a tier pool that holds
-   third-party LP capital. Issue cover C = current pool P (premium 0.06·C at
-   unrated), let the deadline pass, file the auto-breach claim (2 GEN bond
-   refunded, upheld). Payout = min(C, 10% of pool after premium) ≈ 0.106·P vs a
-   0.06·P premium → net ≈ +0.046·P per round while the pool compounds ×0.954;
-   iterate with fresh job_ids. The auto-breach path is deterministic, so there
-   is no consensus cost, and the agent identity is disposable (unrated is the
-   floor). The per-claim 10% cap bounds the rate of extraction, not the total.
-   Every clean fix (agent skin-in-the-game that an upheld claim slashes, or
-   per-tier underwriting/admission) is a v1.1 market-design change that also
-   conflicts with the single-buyer demo narrative — and any contract change
-   orphans the canonical `0xED90`/`0xcBF4` deploys plus the live seeded state,
-   so it is **deliberately not patched now**, days before filming. The honest
-   framing already in the docs (sandbox one-person-plays-both-sides; "reputation
-   is only as strong as the wallet behind it") covers the reviewer-facing edge.
-2. **Bronze promotion has no breach-rate gate (minor):** silver/gold require
-   breach_rate ≤ 8%/2%, but bronze only needs 3 insured jobs + 2 distinct
-   buyers + 3 days of tenure. A chronic breacher can become cheaper to insure
-   (600 → 400 bps). No live path can reach bronze today, so it has zero review
-   visibility; one gate line for v1.1.
+### Finding 1 — self-deal auto-breach drain: PATCHED (Shape A, shipped)
+Original finding: a buyer plus its own never-delivering agent (two wallets) can
+drain a tier pool that holds third-party LP capital — issue cover up to ~10% of
+pool (premium 0.06·C at unrated), let the deadline pass, file the deterministic
+auto-breach claim, collect ≈ coverage − premium. The **one-wallet** version (buy
+on your own agent) is now **impossible** (item 9, self-buy revert), the deadline
+can't be a ~1-second loop anymore (item 7, 60 s floor), and per-policy coverage
+is capped to what a single claim pays (item 10). Remaining residual, disclosed
+in the contract and `docs/CONTRACT.md`: a controller using **two separate
+wallets** can still run a slow drip (~coverage − premium per round, bounded to
+10% of the pool per round). Insurance that pays out more than its premium is the
+mechanism's point — an honest claim is economically identical — so no contract
+rule can allow the demo and forbid that drain; the real defence is off-chain.
+2. **Bronze promotion still has no breach-rate gate (minor, unpatched):**
+   silver/gold require breach_rate ≤ 8%/2%, but bronze only needs 3 insured jobs
+   + 2 distinct buyers + 3 days of tenure. A chronic breacher can become cheaper
+   to insure (600 → 400 bps). No live path can reach bronze today, so it has
+   zero review visibility; one gate line for v1.1.
 
 ### QA gap — judged consensus claim never proven on a live network
 StudioNet e2e and Bradbury exercised only the **deterministic auto-breach**
@@ -361,12 +395,18 @@ pool and would shift the §05 board numbers mid-filming.
 - `docs/dev/` — internal working notes (PROGRESS.md, PROJECT_MEMORY.md).
 
 ## Next steps
+0. **Flip the Vercel env** to `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS =
+   0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` and redeploy the project (the
+   only outstanding action; no local CLI token). Then verify the live site reads
+   the new contract (page foot + board numbers Unrated 10.06 / locked 1.00 /
+   Bronze 5 / Silver 3 / Gold 2 + seeded feed).
 1. Dry-run the rewritten §05 path live against the final UI on a fresh profile
    (pools are seeded; feed opens with the seeded history), then record the demo
    from `aegis-demo-plan.md` / `aegis-demo-captions.md`: ~2-min-deadline claim
-   leaves the planted example on-chain. Then fill the `[YOU: …]` blanks in
-   `aegis-submission-note.md` (logo, dropdown tags, YouTube link, the planted
-   job id for §05 Step 2, deploy tx hashes) and submit.
+   leaves the planted example on-chain. Then fill the remaining `[YOU: …]`
+   blanks in `aegis-submission-note.md` (logo, dropdown tags, YouTube link, the
+   planted job id for §05 Step 2 — deploy tx hashes are now recorded in
+   `docs/DEPLOYMENT.md`) and submit.
 2. Keep StudioNet as the live frontend target (Bradbury stays documented only).
 3. Optional, AFTER the demo take: live-judged-path smoke on StudioNet (register
    a fresh agent, submit a real deliverable CID, file a claim through consensus)

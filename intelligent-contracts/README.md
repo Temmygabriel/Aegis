@@ -6,14 +6,16 @@ no separate "StudioNet contract" vs "Bradbury contract" to maintain. Keeping one
 source (instead of two byte-identical copies) is what prevents the two from ever
 drifting apart.
 
-## Canonical live deployments (2026-09-02, value-tested)
+## Canonical live deployments (2026-09-03, Shape A-hardened, value-tested)
 
-Both deployed from the current `aegis.py` in this folder:
+Both deployed from the current `aegis.py` in this folder (the gaming-hardening
+pass — self-buy ban, epoch deadlines + 60 s floor, coverage capped to the pool
+share):
 
 | Network | Address | Verified |
 |---|---|---|
-| **StudioNet** (61999) | `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` | Full e2e **28/28** — `e2e/results/studionet-e2e.log` |
-| **Testnet Bradbury** (4221) | `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` | 1 GEN deposit→withdraw roundtrip **7/7** — `e2e/results/bradbury-roundtrip.log` |
+| **StudioNet** (61999) | `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` | Full e2e **28/28** — `e2e/results/studionet-e2e.log` |
+| **Testnet Bradbury** (4221) | `0x79C15889D5070321176994373C440778a9eC47c1` | Deploy read-verified; 1 GEN deposit→withdraw roundtrip **7/7** proven on the prior generation — `e2e/results/bradbury-roundtrip.log` |
 
 Full evidence, prior deployments, and re-deploy steps live in
 [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) and

@@ -1,8 +1,8 @@
 # Aegis — Real-Network E2E Test Report
 
-Date: 2026-09-02 · Harness: `e2e/run.js` + `e2e/roundtrip.js` (genlayer-js — the
-same SDK the frontend uses, chosen because the `genlayer` CLI cannot attach
-`value` to contract writes). Both scripts sign locally with harness keys in
+Harness: `e2e/run.js` + `e2e/roundtrip.js` (genlayer-js — the same SDK the
+frontend uses, chosen because the `genlayer` CLI cannot attach `value` to
+contract writes). Both scripts sign locally with harness keys in
 `e2e/keys.json` (gitignored). Outcome detection is **per-network** and validated
 against ground-truth receipts — see §4.
 
@@ -12,10 +12,17 @@ against ground-truth receipts — see §4.
 
 | Network | Deploy address | Test | Verdict |
 |---|---|---|---|
-| **StudioNet** | `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` | Full 28-step lifecycle | ✅ **28/28 PASS** |
-| **Bradbury** | `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` | 1 GEN deposit→withdraw roundtrip | ✅ **7/7 PASS** |
+| **StudioNet** (2026-09-03, Shape A source) | `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` | Full 28-step lifecycle | ✅ **28/28 PASS** |
+| **Bradbury** (2026-09-03, Shape A source) | `0x79C15889D5070321176994373C440778a9eC47c1` | Deploy read-verified | ✅ reads |
+| StudioNet (2026-09-02, superseded) | `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` | Full 28-step lifecycle | ✅ **28/28 PASS** |
+| Bradbury (2026-09-02, superseded) | `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` | 1 GEN deposit→withdraw roundtrip | ✅ **7/7 PASS** |
 
-Both contracts deployed from the same source: `intelligent-contracts/aegis.py`.
+The 2026-09-03 StudioNet run re-proved the full lifecycle against the
+gaming-hardened source on the current canonical deploy (its `e2e/results/
+studionet-e2e.log` also exercises the new sub-60 s deadline revert). The two
+2026-09-02 rows are the prior-generation runs; details in the sections below
+were captured then. All four contracts deployed from the same source file:
+`intelligent-contracts/aegis.py`.
 
 ---
 

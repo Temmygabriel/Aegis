@@ -37,10 +37,13 @@ Four moving parts in the contract:
 
 ## Deployed contract addresses
 
-- **StudioNet (canonical):** `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` (deployed 2026-09-02)
-  - **Full e2e 28/28 PASS** (`e2e/results/studionet-e2e.log`): register, LP deposit,
-    2× payable issue, deliverable, negative gates, expire, auto-breach claim +
-    payout, counters, LP withdraw to pool 0.
+- **StudioNet (canonical, Shape A):** `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4`
+  (deployed 2026-09-03, tx `0xf8e416dc…c6373d8fe`)
+  - **Full e2e 28/28 PASS on this address** (`e2e/results/studionet-e2e.log`):
+    register, LP deposit, 2× payable issue, deliverable, negative gates (incl.
+    past + sub-60 s deadlines), expire, auto-breach claim + payout, counters, LP
+    withdraw to pool 0. Live board re-seeded after the run (Unrated 10.06 /
+    locked 1.00, Bronze 5, Silver 3, Gold 2).
   - StudioNet does NOT support `genlayer schema` ("not supported on this network").
   - StudioNet RPC is flaky: read/call sometimes fail with ECONNRESET / SSL session-id
     errors. Just retry — they succeed on the next attempt.
@@ -49,16 +52,19 @@ Four moving parts in the contract:
     added 2026-09-03) parses ISO to integer epoch seconds and slices off the
     fractional tail, so sub-second slop is handled deterministically and a
     deadline must clear a 60 s minimum horizon.
-- **Bradbury (canonical):** `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` (deployed 2026-09-02)
-  - **1 GEN deposit→withdraw roundtrip 7/7 PASS** (`e2e/results/bradbury-roundtrip.log`):
-    deposit 1 GEN → pool 1 → withdraw 1 GEN → pool 0. Value returns on success.
+- **Bradbury (canonical, Shape A):** `0x79C15889D5070321176994373C440778a9eC47c1`
+  (deployed 2026-09-03, tx `0x14222a14…3832350a`; read-verified live)
+  - **1 GEN deposit→withdraw roundtrip 7/7 PASS** (`e2e/results/bradbury-roundtrip.log`)
+    was proven on the prior generation; value semantics unchanged.
   - Bradbury `registered_at` is whole seconds (`2026-09-02T04:26:37Z`, no fraction).
   - Bradbury receipts have NO `consensus_data` — outcome is numeric
     `txExecutionResult` (1=return/ok, 2=error/revert, 0=NOT_VOTED); a
     `LEADER_TIMEOUT`/`IDLE` tx is undetermined, never ok.
-- **Superseded (do not use):** StudioNet `0x4870…`; Bradbury `0x1ad8…` (first)
-  and `0xcE82…` (holds orphaned 20.06 GEN from a LEADER_TIMEOUT deposit burn;
-  no recovery path — see PROGRESS.md).
+- **Superseded (do not use):** 2026-09-02 unpatched generation — StudioNet
+  `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`, Bradbury
+  `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2`; older still StudioNet `0x4870…`,
+  Bradbury `0x1ad8…` (first) and `0xcE82…` (holds orphaned 20.06 GEN from a
+  LEADER_TIMEOUT deposit burn; no recovery path — see PROGRESS.md).
 
 The frontend needs the address via `NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS` (and
 `NEXT_PUBLIC_AEGIS_NETWORK` for which network) — see `frontend/.env.example`.

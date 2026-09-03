@@ -61,6 +61,8 @@ shares, and the deadline logic are all deterministic.
 | `BREACH_THRESHOLD` | 40 | Conformance score below this = breach. |
 | `SCORE_TOLERANCE` | 15 | LLM answer is deterministic-confirmed within this tolerance. |
 | `MAX_PAYOUT_BPS_OF_POOL` | 1000 | A single claim pays at most 10% of the tier pool. |
+| `MAX_COVERAGE_BPS_OF_POOL` | 1000 | One policy's coverage is capped to 10% of the tier pool at issue (same share a single claim can ever pay). |
+| `MIN_DEADLINE_HORIZON_SECONDS` | 60 | A deadline must be at least this far in the future at issue. |
 | `MIN_COVERAGE_ATTO` | 0.01 GEN | Minimum coverage per policy (cost floor for tier progress). |
 | `RATE_BPS_BY_TIER` | unrated 600 / bronze 400 / silver 250 / gold 150 | Annualized premium basis points. |
 | `MIN_DISTINCT_BUYERS_BY_TIER` | bronze 2 / silver 5 / gold 10 | Distinct buyer addresses needed to reach a tier. |
@@ -71,7 +73,9 @@ shares, and the deadline logic are all deterministic.
 
 Every hardening here was either required by an earlier review pass or discovered
 during a direct-mode security review (2026-09-02) and fixed. Each is covered by a
-regression test in `tests/direct/test_aegis.py`.
+regression test in `tests/direct/test_aegis.py`. Items 7, 9 and 10 are the
+2026-09-03 "Shape A" pass — the response to the reviewer-facing self-dealing
+review — and shipped in the current canonical deploys (see DEPLOYMENT.md).
 
 1. **Canonical identity keys.** `agent_id` / `job_id` are user-typed strings with
    no external registry. `_normalize_key()` lowercases + strips them before use as
@@ -100,20 +104,57 @@ regression test in `tests/direct/test_aegis.py`.
    elapsed tenure since registration. This raises the cost of a sybil scheme from
    minutes to weeks (it doesn't make sybil-proof — no on-chain contract can).
 
-7. **Deadlines must be in the future.** A policy issued with an already-passed
-   deadline used to let a buyer instantly claim the "no deliverable submitted"
-   auto-breach — the agent had no chance to deliver, so a ~6% premium could buy a
-   payout of up to 10% of the pool, repeatable with fresh `job_id`s to drain a tier
-   or burn an honest agent's reputation in a single block. Now `issue_policy`
-   reverts unless the deadline is strictly after the current block time.
+7. **Deadlines must be a real window in the future.** A policy issued with an
+   already-passed deadline used to let a buyer instantly claim the "no
+   deliverable submitted" auto-breach — the agent had no chance to deliver, so a
+   ~6% premium could buy a payout of up to 10% of the pool, repeatable with fresh
+   `job_id`s to drain a tier or burn an honest agent's reputation in a single
+   block. Deadlines are now parsed to epoch seconds (`_iso_to_epoch_seconds`,
+   pure positional math, no datetime dependency, fractional seconds ignored) and
+   `issue_policy` reverts unless the deadline is at least
+   `MIN_DEADLINE_HORIZON_SECONDS` (60 s) in the future. The same epoch compare
+   drives `expire_policy` and `file_claim`, so there is no sub-second string
+   ordering ambiguity across networks that timestamp differently.
 
 8. **Claims are deterministic before they're AI.** The single-use gate, access
    control, bond, and deadline checks all run before any LLM call; validators
    independently re-derive the score rather than trusting the leader's output.
 
+9. **No self-insurance.** The agent's own owner wallet cannot buy cover on the
+   agent's job. This closes the cheapest self-dealing drain — one wallet that
+   registers an agent and then buys a policy on it, defaults on its own job, and
+   collects a payout it would never have needed. Buyer and agent are separate
+   roles, which is how the honest market and the live demo already operate.
+
+10. **Coverage is capped to what a single claim can ever pay.** `issue_policy`
+    rejects coverage above `MAX_COVERAGE_BPS_OF_POOL` (10%) of the tier pool, so
+    no buyer holds a policy labeled "20 GEN cover" that one claim could only ever
+    pay ~2 GEN on — the label is the ceiling. This also bounds every
+    manufactured auto-breach round to that same share of a tier pool.
+
+## Known residual (deliberate, disclosed)
+
+- **Two wallets under one controller can still run a slow drip.** The self-buy
+  ban and the 10% coverage cap bound each round to ~10% of a tier pool and force
+  the *premiums on top*, but a buyer with a *separate* wallet for the agent can
+  still issue cover, let the agent miss the deadline, and collect
+  coverage − premium (~9.4% of the pool at the optimal round) on a default it
+  controls. Insurance that pays out more than its premium is the point of the
+  mechanism — an honest claim is economically identical to this one, so no
+  contract rule can allow the demo and forbid the drain. The real defence is
+  off-chain (the same controller is spending real gasless identity to extract
+  free test GEN) and, in production, agent reputation/underwriting (an upheld
+  claim against an agent's history prices future cover at the worst tier).
+  Bronze promotion still has no breach-rate gate — only silver/gold require
+  breach_rate ≤ 8%/2%. No live path reaches bronze today.
+- **Judged claims have only been proven in direct mode.** The deterministic
+  auto-breach path is proven live on StudioNet; the judged path (deliverable
+  submitted → validators re-fetch both CIDs and score conformance) runs only in
+  direct-mode tests with web + LLM stubbed. It is the documented QA gap.
+
 ## Testing
 
 - **Direct mode (fast, in-memory):** `python -m pytest tests/direct/test_aegis.py -v`
-  — 26 tests covering every method plus the gaming vectors above.
+  — 28 tests covering every method plus the gaming vectors above.
 - **On-chain smoke:** see [DEPLOYMENT.md](DEPLOYMENT.md) for the read/write
   verification run against both networks.

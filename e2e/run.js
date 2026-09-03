@@ -32,13 +32,13 @@ const CONTRACT_PATH = path.join(__dirname, "..", "intelligent-contracts", "aegis
 const NETS = {
   studionet: {
     label: "StudioNet",
-    address: "0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843",
+    address: "0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4",
     chain: studionet,
     needsFunding: false,
   },
   bradbury: {
     label: "Bradbury",
-    address: "0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2",
+    address: "0x79C15889D5070321176994373C440778a9eC47c1",
     chain: testnetBradbury,
     needsFunding: true,
   },
