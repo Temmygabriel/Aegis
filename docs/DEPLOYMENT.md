@@ -7,26 +7,33 @@ deployment actually succeeded.
 
 | Network | Chain ID | Contract address | Deployed | E2E verified |
 |---------|----------|------------------|----------|--------------|
-| StudioNet | 61999 | `0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843` | 2026-09-02 | ✅ **28/28 steps** — full lifecycle (`e2e/results/studionet-e2e.log`) |
-| Testnet Bradbury | 4221 | `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` | 2026-09-02 | ✅ **7/7 steps** — 1 GEN deposit→withdraw roundtrip (`e2e/results/bradbury-roundtrip.log`) |
+| StudioNet | 61999 | `0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4` | 2026-09-03 | ✅ **28/28 steps** — full lifecycle (`e2e/results/studionet-e2e.log`) |
+| Testnet Bradbury | 4221 | `0x79C15889D5070321176994373C440778a9eC47c1` | 2026-09-03 | deploy verified by reads (no full e2e on Bradbury — StudioNet covers the scenario) |
 
-> These are the **canonical, latest** addresses — both deployed from the same
-> repo `intelligent-contracts/aegis.py` and value-tested live. Earlier superseded
-> deployments (`0x4870…` StudioNet, `0x1ad8…` / `0xcE82…` Bradbury) are archived
-> in git history / `docs/dev/PROGRESS.md` and should **not** be used.
+> These are the **canonical, latest** addresses — both deployed 2026-09-03 from
+> the **Shape A hardened** `intelligent-contracts/aegis.py` (self-buy ban, epoch
+> deadline compare + 60 s minimum horizon, coverage capped to 10% of the tier
+> pool). The prior generation (`0xED90…` StudioNet, `0xcBF4…` Bradbury,
+> deployed 2026-09-02) runs the unpatched source and should **not** be used.
 
 - Deploy account (`default`): `0xa881365a99d77be904e414ae610e22938bb0466d`
+- Deploy txs (proof they finalized): StudioNet
+  `0xf8e416dc78f142cff43a7efe05b59e62f2d5b0b6ad6602e18401938c6373d8fe`;
+  Bradbury
+  `0x14222a1446ade8c71f224b889693bf736c090c824ee17f68e67952a03832350a`.
 - The full 28-step StudioNet run exercised register, LP deposit, quoting,
-  2× payable policy issuance, deliverable submit, all negative/gate reverts,
-  expire, auto-breach claim + payout, counters, and LP withdraw to pool 0.
-- The Bradbury roundtrip proved value moves **in and back out** on a successful
-  payable pair (deposit 1 GEN → pool 1 GEN → withdraw 1 GEN → pool 0).
+  2× payable policy issuance, deliverable submit, all negative/gate reverts
+  (now including past **and** sub-60 s deadlines), expire, auto-breach claim +
+  payout, counters, and LP withdraw to pool 0.
+- The earlier-generation Bradbury roundtrip proved value moves **in and back
+  out** on a successful payable pair (deposit 1 GEN → pool 1 GEN → withdraw
+  1 GEN → pool 0); this generation is verified on Bradbury by reads/writes only.
 
 ### Explorer links
 
-- StudioNet: `https://explorer-studio.genlayer.com/address/0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`
+- StudioNet: `https://explorer-studio.genlayer.com/address/0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4`
 - Bradbury:
-  `https://explorer-bradbury.genlayer.com/address/0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2`
+  `https://explorer-bradbury.genlayer.com/address/0x79C15889D5070321176994373C440778a9eC47c1`
 
 ## Frontend environment variables
 
@@ -34,7 +41,7 @@ The Next.js frontend reads these at build time (set them in Vercel). The live
 Vercel deployment points at **StudioNet** (gasless):
 
 ```env
-NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843
+NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x605e5BE4a8013B2B6c70c4BECa3CEbB7BD7918e4
 NEXT_PUBLIC_AEGIS_NETWORK=studionet
 ```
 
@@ -42,7 +49,7 @@ If you'd rather run the frontend against **Bradbury** (no rate limits), swap in
 its deployment instead — both are verified live:
 
 ```env
-NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2
+NEXT_PUBLIC_AEGIS_CONTRACT_ADDRESS=0x79C15889D5070321176994373C440778a9eC47c1
 NEXT_PUBLIC_AEGIS_NETWORK=testnet-bradbury
 ```
 

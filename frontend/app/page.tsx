@@ -70,19 +70,19 @@ type FeedEntry = {
 // localStorage), replay the REAL seed transactions from e2e/seed-live.js into
 // the feed so "Recent activity" matches the funded board a first-time reviewer
 // sees. Every entry below is a genuine finalized write on that contract --
-// register agent-live-1788422271884, the four LP deposits, the 1 GEN cover on
-// job-live-1788422271884 -- ids/amounts identical to the on-chain txs, stamped
+// register agent-live-1788435546808, the four LP deposits, the 1 GEN cover on
+// job-live-1788435546808 -- ids/amounts identical to the on-chain txs, stamped
 // with the actual seed-run time (the ids embed Date.now()). Any other network
 // or address keeps the feed local-only.
-const SEEDED_CONTRACT = "0xed90a97a77cd959bb278cbdfa0f2981df5b5b843";
-const SEED_TS = 1788422271884; // Date.now() when seed-live.js ran (2026-09-03)
+const SEEDED_CONTRACT = "0x605e5be4a8013b2b6c70c4beca3cebb7bd7918e4";
+const SEED_TS = 1788435546808; // Date.now() when seed-live.js ran (2026-09-03)
 const SEED_ACTIVITY: FeedEntry[] = [
-  { action: "issue", jobId: "job-live-1788422271884", agentId: "agent-live-1788422271884", amount: "0.06 GEN", tier: "Unrated", ts: SEED_TS },
+  { action: "issue", jobId: "job-live-1788435546808", agentId: "agent-live-1788435546808", amount: "0.06 GEN", tier: "Unrated", ts: SEED_TS },
   { action: "deposit", amount: "2 GEN", tier: "Gold", ts: SEED_TS },
   { action: "deposit", amount: "3 GEN", tier: "Silver", ts: SEED_TS },
   { action: "deposit", amount: "5 GEN", tier: "Bronze", ts: SEED_TS },
   { action: "deposit", amount: "10 GEN", tier: "Unrated", ts: SEED_TS },
-  { action: "register", agentId: "agent-live-1788422271884", ts: SEED_TS },
+  { action: "register", agentId: "agent-live-1788435546808", ts: SEED_TS },
 ];
 
 function readFeed(): FeedEntry[] {
