@@ -14,3 +14,6 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# esbuild TSX parse gate output (pre-push check)
+.esbuild-check/
