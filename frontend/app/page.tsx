@@ -802,7 +802,8 @@ function CoveragePanel({
         <Notice n={polN} />
 
         {pol && (
-          <div className="kv">
+          <>
+            <div className="kv">
             <div>
               <span className="kv-label">Status</span>
               <span className="kv-value">
@@ -845,6 +846,7 @@ function CoveragePanel({
           {derivePolicyState(pol).action && (
             <p className="action-tip">💡 {derivePolicyState(pol).action}</p>
           )}
+          </>
         )}
         {!pol && polN.status !== "error" && (
           <p className="hint">
