@@ -291,17 +291,63 @@ def test_issue_policy_requires_exact_premium(
                      coverage, SPEC, DEADLINE, exact + 1)
 
 
-def test_issue_policy_rejects_past_deadline(
+def test_issue_policy_rejects_past_and_too_soon_deadlines(
     direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
 ):
     """Gaming fix: an already-passed deadline must be rejected at issuance so
-    a buyer can't instantly trigger the no-deliverable auto-breach."""
+    a buyer can't instantly trigger the no-deliverable auto-breach. The same
+    guard now also floors the horizon (MIN_DEADLINE_HORIZON_SECONDS = 60 s) so
+    a manufactured round can't run on a ~1-second deadline."""
     contract = direct_deploy("intelligent-contracts/aegis.py")
     setUpPoolAndAgent(direct_vm, contract, direct_alice, direct_bob, direct_charlie)
 
-    with direct_vm.expect_revert("deadline must be a future timestamp"):
+    with direct_vm.expect_revert("seconds in the future"):
         issue_policy(direct_vm, contract, direct_charlie, "job-1", "agent-a",
                      10**18, SPEC, PAST_DEADLINE, premium_for(10**18, "unrated"))
+
+    # 30 s out is real (past) but under the 60 s floor -> rejected too.
+    with direct_vm.expect_revert("seconds in the future"):
+        issue_policy(direct_vm, contract, direct_charlie, "job-2", "agent-a",
+                     10**18, SPEC, "2026-01-01T00:00:30Z", premium_for(10**18, "unrated"))
+
+    # 90 s out clears the floor (this is the boundary the demo relies on).
+    issue_policy(direct_vm, contract, direct_charlie, "job-3", "agent-a",
+                 10**18, SPEC, "2026-01-01T00:01:30Z", premium_for(10**18, "unrated"))
+    assert contract.get_policy("job-3")["status"] == "active"
+
+
+def test_issue_policy_rejects_self_buy(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """Self-dealing hardening: the agent's own owner wallet cannot buy cover
+    on it (closes the one-wallet drain -- register an agent, self-buy, collect
+    a payout on a default you control). The buyer must be a separate role."""
+    contract = direct_deploy("intelligent-contracts/aegis.py")
+    setUpPoolAndAgent(direct_vm, contract, direct_alice, direct_bob, direct_bob)
+
+    with direct_vm.expect_revert("cannot insure the agent's own job"):
+        issue_policy(direct_vm, contract, direct_bob, "job-1", "agent-a",
+                     10**18, SPEC, DEADLINE, premium_for(10**18, "unrated"))
+
+
+def test_issue_policy_coverage_capped_to_single_claim_share(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    """MAX_COVERAGE_BPS_OF_POOL: one policy's coverage is capped to what one
+    claim can ever pay (10% of the tier pool), so no buyer holds a policy
+    labeled more than a single claim could collect."""
+    contract = direct_deploy("intelligent-contracts/aegis.py")
+    setUpPoolAndAgent(direct_vm, contract, direct_alice, direct_bob, direct_charlie)
+
+    # 20% of the 20 GEN pool is above the 10% cap -> rejected.
+    with direct_vm.expect_revert("single-claim pool cap"):
+        issue_policy(direct_vm, contract, direct_charlie, "job-1", "agent-a",
+                     4 * 10**18, SPEC, DEADLINE, premium_for(4 * 10**18, "unrated"))
+
+    # Exactly 10% (2 GEN) is allowed.
+    issue_policy(direct_vm, contract, direct_charlie, "job-2", "agent-a",
+                 2 * 10**18, SPEC, DEADLINE, premium_for(2 * 10**18, "unrated"))
+    assert contract.get_policy("job-2")["status"] == "active"
 
 
 def test_issue_policy_locks_exposure_and_counts_buyer_once(
@@ -531,29 +577,38 @@ def test_claim_payout_capped_at_10pct_pool(
     direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
 ):
     """MAX_PAYOUT_BPS_OF_POOL: a single claim can pay at most 10% of the tier
-    pool, even if coverage is larger."""
+    pool at claim time. Coverage is now itself capped to 10% of the pool at
+    issue, so the payout cap binds when an earlier payout has already shrunk
+    the pool below the coverage amount: two 2 GEN policies on a 20 GEN pool --
+    the first pays its full 2 GEN, the second finds the pool at 18.24 GEN and
+    can only pay 1.824 GEN."""
     contract = direct_deploy("intelligent-contracts/aegis.py")
-    fund_accounts(direct_vm, direct_alice, direct_bob, direct_charlie)
-    direct_vm.warp(T0)
-    deposit(direct_vm, contract, direct_alice, "unrated", 5 * 10**18)  # small pool
-    register(direct_vm, contract, direct_bob, "agent-a")
+    setUpPoolAndAgent(direct_vm, contract, direct_alice, direct_bob, direct_charlie)
 
-    coverage = 3 * 10**18  # 60% of the 5 GEN pool
-    prem = premium_for(coverage, "unrated")
+    cov = 2 * 10**18  # exactly 10% of the 20 GEN pool -- allowed at issue
+    prem = premium_for(cov, "unrated")
     issue_policy(direct_vm, contract, direct_charlie, "job-1", "agent-a",
-                 coverage, SPEC, DEADLINE, prem)
+                 cov, SPEC, DEADLINE, prem)
+    issue_policy(direct_vm, contract, direct_charlie, "job-2", "agent-a",
+                 cov, SPEC, DEADLINE, prem)
 
-    direct_vm.warp("2026-03-02T00:00:00Z")  # after deadline, no deliverable
-    pool_before = 5 * 10**18 + prem
-    cap = (pool_before * 1000) // 10000
+    direct_vm.warp("2026-03-02T00:00:00Z")  # after deadlines, no deliverable
 
+    # Claim 1 pays its full 2 GEN: pool 20.24 GEN -> 18.24 GEN.
     direct_vm.sender = direct_charlie
     direct_vm.value = CLAIM_BOND
     contract.file_claim("job-1")
-
     assert contract.get_claim_status("job-1") == "upheld"
+
+    # Claim 2's cap = 10% of the now-shrunken 18.24 GEN pool = 1.824 GEN,
+    # so the payout binds below the 2 GEN coverage.
+    direct_vm.value = CLAIM_BOND
+    contract.file_claim("job-2")
+    assert contract.get_claim_status("job-2") == "upheld"
+
     info = contract.get_pool_info("unrated")
-    assert info["balance_atto"] == pool_before - cap  # paid cap, not full coverage
+    assert info["balance_atto"] == 16416000000000000000  # 18.24 - 1.824 GEN
+    assert info["locked_exposure_atto"] == 0  # both exposures released
 
 
 # ---------------------------------------------------------------------------

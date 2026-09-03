@@ -45,9 +45,10 @@ Four moving parts in the contract:
   - StudioNet RPC is flaky: read/call sometimes fail with ECONNRESET / SSL session-id
     errors. Just retry — they succeed on the next attempt.
   - `registered_at` observed on StudioNet includes fractional seconds
-    (`2026-09-02T04:22:05.627206Z`). The deadline guard compares ISO strings
-    lexicographically, so sub-second slop is possible but not exploitable
-    (the window is about days, not milliseconds).
+    (`2026-09-02T04:22:05.627206Z`). The Shape A deadline guard (epoch-compare
+    added 2026-09-03) parses ISO to integer epoch seconds and slices off the
+    fractional tail, so sub-second slop is handled deterministically and a
+    deadline must clear a 60 s minimum horizon.
 - **Bradbury (canonical):** `0xcBF48A444242919EEA65Ff5bB6BD9d2CB82506e2` (deployed 2026-09-02)
   - **1 GEN deposit→withdraw roundtrip 7/7 PASS** (`e2e/results/bradbury-roundtrip.log`):
     deposit 1 GEN → pool 1 → withdraw 1 GEN → pool 0. Value returns on success.

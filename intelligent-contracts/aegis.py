@@ -84,6 +84,31 @@ Gaming-audit hardening (this pass):
   the trick is repeatable with fresh job_ids to drain a tier or burn an
   honest agent's reputation in a single block. Future-dated deadlines give
   the agent a real window to submit evidence before a claim can auto-breach.
+
+Self-dealing hardening (Shape A, pre-submission audit pass):
+- issue_policy now rejects the agent's OWN owner as the buyer. One wallet
+  registering an agent and then buying cover on it, pocketing the payout on a
+  default it controls, was the cheapest drain: no second identity needed, and
+  the demo itself already separates the roles (the buyer is a different
+  wallet), so this rule costs an honest market nothing.
+- Deadline checks are now epoch-second compares (parse the ISO string, no
+  datetime dependency) instead of raw string compares, and a deadline must be
+  at least MIN_DEADLINE_HORIZON_SECONDS out. Sub-second string-comparison
+  ambiguities are gone and a manufactured round can't run on a ~1-second
+  deadline.
+- Coverage is capped at MAX_COVERAGE_BPS_OF_POOL (10%) of the tier pool --
+  the same share a single claim can ever pay. What a policy labels as
+  "coverage" is now always what one claim can collect, and the per-round
+  extraction of a manufactured auto-breach is bounded to that share.
+
+Known residual (deliberate, disclosed): a buyer and a *separate* agent wallet
+under one controller can still repeat the honest auto-breach flow to drip
+third-party LP capital out of a tier at up to ~10% of the pool per round
+(their only real costs are the premium, ~2 GEN bond float, and a new job id
+per round; identities are free on gasless chains). Closing that needs agent
+skin-in-the-game or pool admission -- a v1.1 market-design change that would
+also change the single-buyer demo, so it is left out on purpose and documented
+here instead of hidden.
 """
 
 from genlayer import *
@@ -115,6 +140,18 @@ CLAIM_BOND_ATTO = 2 * 10**18
 BREACH_THRESHOLD = 40
 SCORE_TOLERANCE = 15
 MAX_PAYOUT_BPS_OF_POOL = 1000  # 10% of that tier's pool per single claim
+# A single policy's coverage is capped to the same 10% of the tier pool that a
+# single claim can ever pay. Buying "coverage" the contract can't pay in full
+# is a trap for honest buyers (cover 20 GEN, get paid at most 2); the label on
+# a policy must equal what a claim against it can actually collect. It also
+# caps the per-policy extraction a manufactured auto-breach can move in one
+# round to that same 10%-of-pool share.
+MAX_COVERAGE_BPS_OF_POOL = MAX_PAYOUT_BPS_OF_POOL
+# A deadline must give the agent a real window to deliver before a no-deliverable
+# auto-breach claim is possible. Without a floor, a self-dealing round could
+# run on ~1-second deadlines -- the drain becomes a fast loop instead of a
+# deliberate, disclosed residual. 60 s keeps the honest flow (demo uses 2 min).
+MIN_DEADLINE_HORIZON_SECONDS = 60
 MIN_COVERAGE_ATTO = 10**16  # 0.01 GEN floor -- makes every policy a real cost, not free spam
 
 MIN_DISTINCT_BUYERS_BY_TIER = {
@@ -182,6 +219,41 @@ def _looks_like_content_hash(value: str) -> bool:
     if len(v) >= 50 and v[0] in ("b", "B") and all(c in _B32_ALPHABET for c in v[1:].lower()):
         return True  # CIDv1 (base32)
     return False
+
+
+def _iso_to_epoch_seconds(iso_str: str) -> int:
+    """UTC ISO8601 -> integer epoch seconds, pure positional math in the same
+    style as _iso_date_to_day_number (no datetime dependency). Accepts a
+    trailing 'Z', no zone suffix, or a +/-HH:MM offset, and ignores fractional
+    seconds. Used for deadline comparisons -- floor-to-second is fine because
+    every honest deadline is minutes out and the old raw string compare had
+    sub-second format ambiguities this removes. Raises ValueError/IndexError on
+    a malformed input so callers can fail cleanly."""
+    y = int(iso_str[0:4])
+    m = int(iso_str[5:7])
+    d = int(iso_str[8:10])
+    hh = int(iso_str[11:13])
+    mm = int(iso_str[14:16])
+    ss = int(iso_str[17:19])
+    epoch = _iso_date_to_day_number(iso_str) * 86400 + hh * 3600 + mm * 60 + ss
+
+    # Optional trailing offset after the seconds ("Z", nothing, or +HH:MM /
+    # -HH:MM -- the hyphens inside the date are before index 19, so a sign here
+    # is always a timezone). Fractional seconds and stray separators are skipped.
+    tail = iso_str[19:]
+    sign_idx = -1
+    for i, ch in enumerate(tail):
+        if ch in ("+", "-"):
+            sign_idx = i
+            break
+        if ch not in "0123456789.:T ":
+            break  # 'Z' or anything else -> UTC, no adjustment
+    if sign_idx >= 0:
+        off_h = int(tail[sign_idx + 1:sign_idx + 3])
+        off_m = int(tail[sign_idx + 4:sign_idx + 6])
+        offset_s = off_h * 3600 + off_m * 60
+        epoch = epoch - offset_s if tail[sign_idx] == "+" else epoch + offset_s
+    return epoch
 
 
 def _parse_score(analysis) -> int:
@@ -370,6 +442,16 @@ class Aegis(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} policy already exists for job_id")
         if agent_key not in self.agents:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} unknown agent_id")
+        if gl.message.sender_address == self.agents[agent_key].owner:
+            # Self-dealing hardening: the cheapest drain is one wallet that
+            # registers an agent and then buys cover on it, collecting a payout
+            # on a default it controls. Buyer and agent must be separate roles
+            # (the honest market and the demo both already are). Two wallets
+            # under one controller remain possible -- see the known-residual
+            # note in the module docstring.
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} the agent's owner cannot insure the agent's own job"
+            )
         if not _looks_like_content_hash(spec_hash):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} spec_hash must be a content-addressed IPFS CID, not a URL"
@@ -380,16 +462,25 @@ class Aegis(gl.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} coverage_atto must be at least {MIN_COVERAGE_ATTO} atto"
             )
-        if deadline_iso <= gl.message_raw["datetime"]:
-            # Deadline must be strictly in the future. Without this, a buyer
-            # could issue a policy with an already-passed deadline and claim
-            # the instant "no deliverable submitted" auto-breach before the
-            # agent has any chance to deliver -- paying a ~6% premium to
-            # extract up to the 10%-of-pool payout cap, repeatable with fresh
-            # job_ids to drain a tier pool or burn an honest agent's
-            # reputation in a single block. Future-dated only.
+        try:
+            deadline_s = _iso_to_epoch_seconds(deadline_iso)
+        except (ValueError, IndexError):
             raise gl.vm.UserError(
-                f"{ERROR_EXPECTED} deadline must be a future timestamp"
+                f"{ERROR_EXPECTED} deadline must be an ISO-8601 UTC timestamp"
+            )
+        now_s = _iso_to_epoch_seconds(gl.message_raw["datetime"])
+        if deadline_s - now_s < MIN_DEADLINE_HORIZON_SECONDS:
+            # A deadline must be a real window in the future (strictly past
+            # AND at least MIN_DEADLINE_HORIZON_SECONDS out). Without the
+            # floor, a self-dealer could issue on a ~1-second deadline and
+            # immediately claim the "no deliverable submitted" auto-breach,
+            # turning the drain into a fast loop; the floor also gives the
+            # agent a genuine chance to deliver before any auto-breach claim
+            # is even possible. Epoch compare, not string compare, so the
+            # check has no sub-second format ambiguity.
+            raise gl.vm.UserError(
+                f"{ERROR_EXPECTED} deadline must be at least "
+                f"{MIN_DEADLINE_HORIZON_SECONDS} seconds in the future"
             )
 
         tier = self.agents[agent_key].tier
@@ -398,10 +489,16 @@ class Aegis(gl.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} no underwriting capital available for tier '{tier}' yet"
             )
-        if int(coverage_atto) > pool_value:
+        if int(coverage_atto) > (pool_value * MAX_COVERAGE_BPS_OF_POOL) // 10000:
+            # Coverage on one policy is capped to what one claim can ever pay
+            # (10% of the tier pool). A buyer must never hold a policy labeled
+            # "20 GEN cover" that a single claim can only ever pay ~2 GEN on --
+            # the label should be the ceiling. This also bounds the per-round
+            # size of any manufactured auto-breach to that same share.
             raise gl.vm.UserError(
-                f"{ERROR_EXPECTED} coverage exceeds available pool capacity "
-                f"({pool_value} atto) for tier '{tier}'"
+                f"{ERROR_EXPECTED} coverage exceeds the single-claim pool cap "
+                f"({(pool_value * MAX_COVERAGE_BPS_OF_POOL) // 10000} atto = "
+                f"{MAX_COVERAGE_BPS_OF_POOL // 100}% of the '{tier}' tier pool)"
             )
 
         rate_bps = RATE_BPS_BY_TIER[tier]
@@ -498,7 +595,9 @@ class Aegis(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only the buyer may expire this policy")
         if policy.status != STATUS_ACTIVE:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} policy not active")
-        if gl.message_raw["datetime"] <= policy.deadline_iso:
+        if _iso_to_epoch_seconds(gl.message_raw["datetime"]) <= _iso_to_epoch_seconds(
+            policy.deadline_iso
+        ):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} deadline has not passed yet")
 
         policy.status = STATUS_EXPIRED
@@ -645,7 +744,9 @@ class Aegis(gl.Contract):
         if int(gl.message.value) != CLAIM_BOND_ATTO:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} claim bond must be exactly {CLAIM_BOND_ATTO} atto")
 
-        deadline_passed = gl.message_raw["datetime"] > policy.deadline_iso
+        deadline_passed = _iso_to_epoch_seconds(
+            gl.message_raw["datetime"]
+        ) > _iso_to_epoch_seconds(policy.deadline_iso)
 
         if policy.deliverable_hash == "":
             # The agent never submitted anything for this contract to
