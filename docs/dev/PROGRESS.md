@@ -5,6 +5,22 @@ within each section; keep this updated as work happens.
 
 ## Status (2026-09-03)
 
+- **Done (submission + demo docs rewritten to the final UI; working folder
+  cleaned):** `aegis-submission-note.md` rewritten in the Rigor style
+  (`genlayer-project-explorer-submission.md` in the same folder): a simple §05
+  reviewer path (Steps 1–7) aligned to the shipped war-room labels (Risk pool
+  overview, Recent activity, Get quote / Issue policy, Policy status chips
+  Awaiting delivery / Auto-breach available / Paid out), §03 Description
+  measured 983 chars, §06 outcome measured 469 chars, and inline symbols
+  (arrows/checks/backticks/blockquotes) stripped from the body. The feed no
+  longer "starts empty": §05 and the demo plan say the Recent activity panel
+  opens with the seeded history and the demo's own writes stack above.
+  `aegis-demo-plan.md` rebuilt as a plain run-sheet keyed to §05 with a
+  copy-paste values block; `aegis-demo-captions.md` cleaned to plain short
+  cards. Superseded/implemented docs (old demo-script, submission-draft,
+  ui-redesign, ui-ux-recommendations, wallet-integration) moved to `archive/`
+  with a README; top level now holds only the live doc set + the mock + the
+  official guides.
 - **Done (feed backfill on the seeded live board):** "Recent activity" read
   empty on any fresh browser because the feed only logs *this-browser* writes
   and the seeded chain activity came from `seed-live.js`'s Node wallet. On the
@@ -287,9 +303,10 @@ within each section; keep this updated as work happens.
 - `docs/dev/` — internal working notes (PROGRESS.md, PROJECT_MEMORY.md).
 
 ## Next steps
-1. Record the demo video from `aegis-demo-plan.md` / `aegis-demo-captions.md`
-   (working folder, above the repo): fresh browser profile, ~2-min-deadline
-   claim, leaves the planted example on-chain. Then fill the `[YOU: …]` blanks
-   in `aegis-submission-note.md` (logo, dropdown tags, YouTube link, planted
-   job id, deploy tx hashes) and submit.
+1. Dry-run the rewritten §05 path live against the final UI on a fresh profile
+   (pools are seeded; feed opens with the seeded history), then record the demo
+   from `aegis-demo-plan.md` / `aegis-demo-captions.md`: ~2-min-deadline claim
+   leaves the planted example on-chain. Then fill the `[YOU: …]` blanks in
+   `aegis-submission-note.md` (logo, dropdown tags, YouTube link, the planted
+   job id for §05 Step 2, deploy tx hashes) and submit.
 2. Keep StudioNet as the live frontend target (Bradbury stays documented only).
