@@ -3,8 +3,28 @@
 Running log of investigation, testing, fixes, and deployment. Newest first
 within each section; keep this updated as work happens.
 
-## Status (2026-09-02)
+## Status (2026-09-03)
 
+- **Done (war-room redesign):** implemented `aegis-ui-redesign.md` on
+  `layout.tsx` (Space Grotesk + Space Mono replace Fraunces/IBM Plex),
+  `globals.css` (darker `#07090f` bg + tighter radial glows, new copper
+  `#e07820` + cold-green `#38e89a` verdict tokens, 8/6/6 px radii, then the
+  new component layer: hero board, tier bars, live-activity feed, quote-box,
+  verdict stamp, hero-left shield watermark, net-pill pulse), and
+  `page.tsx` (hero is now a hero-lead statement + two-column board —
+  **hero-left TierBars** risk display replacing the stat-card + tiles, and a
+  **hero-right live feed** fed by the real last-N confirmed writes in
+  `localStorage`; `VerdictBox` → `VerdictStamp` ink-stamp; Coverage quote +
+  issue collapsed into a `.quote-box`). UX-round logic preserved
+  (review/confirm flow, derived policy chips + action tips, Claims role
+  grouping). **Not yet visually confirmed on the Vercel build.** Conformance
+  score bar **deferred**: the contract exposes no 0–100 score read, so there
+  is nothing honest to draw.
+- **Done (build fix `105b6f5`):** wrapped the Inspect-a-policy kv + action-tip
+  siblings in a fragment — the Vercel JSX compile error from `0804ebb` is
+  fixed. Preventive gate added: `esbuild` TSX parse before pushes
+  (`.esbuild-check/` gitignored); no local `next build`/`tsc` possible here
+  (no node_modules, 8 GB rule).
 - **Done:** investigation, toolchain setup, direct-mode test suite (26 tests
   all passing), game-security review — one real exploit found **and fixed**
   (instant auto-breach via past deadline). Contract lints clean.
@@ -18,12 +38,14 @@ within each section; keep this updated as work happens.
   role grouping, IdentityBadge type-DELETE confirm, MetaMask mute, tier rates on
   pool tiles, stat-card skeleton + slow-load timeout, refresh timestamp, tab
   relabel, footnote dedupe. (#7 local activity log deferred; #18 zero-display
-  convention already consistent.) **Not yet visually confirmed on the Vercel build.**
+  convention already consistent.)
 - **Done (2026-09-02):** live Vercel env flipped to the canonical StudioNet
   contract (`0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`) + redeployed — site
   and repo now point at the same tested deployment.
-- **Next:** visually verify the UX round on the live site; draft of the
-  GenLayer Project Explorer submission in progress.
+- **Next:** confirm the redesign visually on the live Vercel build; then
+  finish the Project Explorer submission upload (primary tag/sub-tags + logo)
+  and link the demo video; optionally expose a conformance-score contract
+  read if the Inspect score bar is wanted.
 
 ## What's been done
 

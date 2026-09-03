@@ -53,6 +53,42 @@ function errText(e: any): string {
   return cleanContractError(e?.message ?? String(e)).trim();
 }
 
+/* ------------------------------------------------------ live activity feed */
+
+const FEED_KEY = "aegis.activity.v1";
+
+type FeedEntry = {
+  action: "register" | "deposit" | "issue" | "deliverable" | "claim" | "verdict";
+  jobId?: string;
+  agentId?: string;
+  amount?: string; // formatted "X GEN" for the right-hand column
+  tier?: string; // human tier name, e.g. "Unrated"
+  verdict?: "upheld" | "rejected";
+  ts: number;
+};
+
+function readFeed(): FeedEntry[] {
+  try {
+    const raw = localStorage.getItem(FEED_KEY);
+    const arr = raw ? (JSON.parse(raw) as FeedEntry[]) : [];
+    return Array.isArray(arr) ? arr.slice(0, 20) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record a confirmed on-chain write so the hero feed can show it. Fire-and-
+ * forget: never throws, safe to call from any tab panel. */
+function pushFeed(entry: Omit<FeedEntry, "ts">) {
+  try {
+    const next = [{ ...entry, ts: Date.now() }, ...readFeed()].slice(0, 20);
+    localStorage.setItem(FEED_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event("aegis:feed"));
+  } catch {
+    /* storage can be blocked (private windows) -- the app keeps working */
+  }
+}
+
 type Notice =
   | { status: "idle" }
   | { status: "pending"; title: string; detail?: string }
@@ -81,19 +117,207 @@ function Notice({ n, style }: { n: Notice; style?: CSSProperties }) {
   );
 }
 
-/** Verdict chip inside a color-matched notice: green upheld, red rejected. */
-function VerdictBox({ v, detail }: { v: Verdict; detail: string }) {
-  const cls = v === "upheld" ? "ok" : v === "rejected" ? "error" : "";
-  const icon = v === "upheld" ? "✓" : v === "rejected" ? "✕" : "";
+/** Last-N confirmed writes, persisted locally so the board survives reloads. */
+function Feed() {
+  const [entries, setEntries] = useState<FeedEntry[]>([]);
+
+  useEffect(() => {
+    const load = () => setEntries(readFeed());
+    load();
+    window.addEventListener("aegis:feed", load);
+    return () => window.removeEventListener("aegis:feed", load);
+  }, []);
+
+  if (entries.length === 0) {
+    return (
+      <p className="feed-empty">
+        Nothing yet. Every confirmed write lands here — register an agent, fund a
+        pool, insure a job, file a claim.
+      </p>
+    );
+  }
+
   return (
-    <div className={`notice ${cls}`} role="status">
-      <span className="notice-icon">{icon}</span>
-      <div className="notice-body">
-        <div className="notice-title">
-          <span className={`chip ${v} verdict`}>{v}</span>
+    <div className="feed">
+      {entries.slice(0, 6).map((e, i) => (
+        <div className="feed-item" key={`${e.ts}-${i}`}>
+          <span className="feed-dot" style={{ background: feedDotColor(e) }} />
+          <div className="feed-action">
+            <FeedBody e={e} />
+            <div className="feed-time">{timeAgo(e.ts)}</div>
+          </div>
+          {e.amount && <span className="feed-amount">{e.amount}</span>}
         </div>
-        <div className="notice-detail">{detail}</div>
+      ))}
+    </div>
+  );
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  return `${h}h ago`;
+}
+
+function feedDotColor(e: FeedEntry): string {
+  if (e.action === "verdict") {
+    return e.verdict === "upheld"
+      ? "var(--ok)"
+      : e.verdict === "rejected"
+        ? "var(--err)"
+        : "var(--text-faint)";
+  }
+  switch (e.action) {
+    case "register":
+      return "var(--unrated)";
+    case "deposit":
+      return "var(--ok)";
+    case "issue":
+      return "var(--copper)";
+    case "deliverable":
+      return "var(--copper-bright)";
+    case "claim":
+    default:
+      return "var(--text-faint)";
+  }
+}
+
+function FeedBody({ e }: { e: FeedEntry }) {
+  switch (e.action) {
+    case "register":
+      return (
+        <span>
+          Registered agent <b>{e.agentId}</b>
+        </span>
+      );
+    case "deposit":
+      return (
+        <span>
+          Funded the <b>{e.tier ?? "tier"}</b> pool as an LP
+        </span>
+      );
+    case "issue":
+      return (
+        <span>
+          Insured <b>{e.agentId}</b>&apos;s job <b>{e.jobId}</b>
+        </span>
+      );
+    case "deliverable":
+      return (
+        <span>
+          Deliverable recorded for job <b>{e.jobId}</b>
+        </span>
+      );
+    case "claim":
+      return (
+        <span>
+          Claim filed on job <b>{e.jobId}</b>
+        </span>
+      );
+    case "verdict":
+      return e.verdict === "upheld" ? (
+        <span>
+          Claim on <b>{e.jobId}</b> resolved <b>UPHELD</b> — buyer paid
+        </span>
+      ) : e.verdict === "rejected" ? (
+        <span>
+          Claim on <b>{e.jobId}</b> resolved <b>REJECTED</b> — bond forfeited
+        </span>
+      ) : (
+        <span>
+          Claim on <b>{e.jobId}</b> still open
+        </span>
+      );
+  }
+}
+
+/** A physical ink stamp for a resolved claim — the one unmistakable element. */
+function VerdictStamp({
+  v,
+  jobId,
+  detail,
+  amount,
+}: {
+  v: Verdict;
+  jobId: string;
+  detail: string;
+  amount?: string;
+}) {
+  const cls = v === "upheld" ? "upheld" : v === "rejected" ? "rejected" : "";
+  return (
+    <div className={`verdict-card ${cls}`}>
+      <div className={`stamp ${cls}`}>
+        <div className="stamp-text">
+          {v === "upheld" ? (
+            <>
+              UPHELD
+              <br />✓
+            </>
+          ) : v === "rejected" ? (
+            <>
+              REJECTED
+              <br />✕
+            </>
+          ) : (
+            "OPEN"
+          )}
+        </div>
       </div>
+      <div className="verdict-info">
+        <div className="verdict-job mono">{jobId}</div>
+        <div className="verdict-headline">{detail}</div>
+      </div>
+      {amount && (
+        <div className="verdict-amount-col">
+          <div className={`verdict-amount ${cls}`}>{amount}</div>
+          <div className="verdict-amount-label">
+            {v === "upheld" ? "paid to buyer" : "bond forfeited"}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Hero-left risk bars: each tier's pool balance as a share of TVL, with the
+ * locked-exposure region drawn dark inside the fill. */
+function TierBars({ pools, tvl }: { pools: Record<Tier, PoolSnap>; tvl: bigint }) {
+  const configs: { tier: Tier; color: string; rate: string }[] = [
+    { tier: "unrated", color: "var(--unrated)", rate: "6%" },
+    { tier: "bronze", color: "var(--bronze)", rate: "4%" },
+    { tier: "silver", color: "var(--silver)", rate: "2.5%" },
+    { tier: "gold", color: "var(--gold)", rate: "1.5%" },
+  ];
+
+  return (
+    <div className="tier-bars">
+      {configs.map(({ tier, color, rate }) => {
+        const p = pools[tier];
+        const pct = tvl > 0n && p ? Number((p.balance * 100n) / tvl) : 0;
+        const lockedPct = p && p.balance > 0n ? Number((p.locked * 100n) / p.balance) : 0;
+        return (
+          <div key={tier} className="tb-row">
+            <span className="tb-label" style={{ color }}>
+              {TIER_NAMES[tier]}
+            </span>
+            <div className="tb-track">
+              <div className="tb-fill" style={{ width: `${pct}%`, background: color }}>
+                {lockedPct > 0 && (
+                  <div className="tb-locked" style={{ width: `${lockedPct}%` }} />
+                )}
+              </div>
+            </div>
+            <span className="tb-val">{p ? gen(p.balance, 1) : "—"} GEN</span>
+            <span className="tb-rate" style={{ color }}>
+              {rate}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -210,6 +434,7 @@ function AgentsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       const addr = await ensureWallet();
       const { hash } = await register(addr, agentId);
       setRegN({ status: "ok", title: "Agent registered", detail: `tx ${hash}` });
+      pushFeed({ action: "register", agentId: agentId.trim() });
       setLookId(agentId);
       // Surface their own fresh profile straight away so "now what?" is
       // answerable at a glance instead of requiring another Look up click.
@@ -366,6 +591,7 @@ function PoolsPanel({
       const atto = parseGenToAtto(depAmount);
       const { hash } = await deposit(addr, depTier, atto);
       setDepN({ status: "ok", title: `Deposited ${gen(atto)} GEN to ${TIER_NAMES[depTier].toLowerCase()}`, detail: `tx ${hash}` });
+      pushFeed({ action: "deposit", amount: `${gen(atto)} GEN`, tier: TIER_NAMES[depTier] });
       void refreshPools();
     } catch (e: any) {
       setDepN({ status: "error", title: "Deposit failed", detail: errText(e) });
@@ -550,17 +776,15 @@ function CoveragePanel({
 
   async function doQuote() {
     setQuote(null);
+    setNeedPool(null);
     setQuoteN({ status: "pending", title: "Pricing the risk…" });
     try {
       const cov = parseGenToAtto(coverage);
       const q = await quotePremium(covAgentId, cov);
       const premiumAtto = toBig(q.premium_atto);
       setQuote({ tier: q.tier, rate_bps: Number(q.rate_bps), premiumAtto });
-      setQuoteN({
-        status: "ok",
-        title: `Quote ready — ${gen(premiumAtto)} GEN premium`,
-        detail: `${TIER_NAMES[q.tier]} tier · ${Number(q.rate_bps) / 100}% of coverage`,
-      });
+      // The quote-box below carries the "quote ready" readout now.
+      setQuoteN(idleNotice);
     } catch (e: any) {
       setQuoteN({ status: "error", title: "Couldn't get a quote", detail: errText(e) });
     }
@@ -628,6 +852,13 @@ function CoveragePanel({
       setQuote(null);
       setQuoteN(idleNotice);
       setIssueN({ status: "ok", title: "Policy is live", detail: `tx ${hash}` });
+      pushFeed({
+        action: "issue",
+        jobId: review.jobId,
+        agentId: review.agentId,
+        amount: `${gen(review.premiumAtto)} GEN`,
+        tier: TIER_NAMES[review.tier],
+      });
       setPolJob(review.jobId);
     } catch (e: any) {
       setIssueN({ status: "error", title: "Issue failed", detail: errText(e) });
@@ -695,31 +926,43 @@ function CoveragePanel({
         </div>
         <div className="btn-row">
           <button className="btn btn-ghost" disabled={quoteN.status === "pending"} onClick={doQuote}>
-            {quoteN.status === "pending" ? "Pricing…" : "Get quote"}
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={!quote || issueN.status === "pending" || !!review}
-            onClick={doIssue}
-          >
-            {issueN.status === "pending"
-              ? "Issuing…"
-              : review
-                ? "Review open above"
-                : quote
-                  ? `Review & pay ${gen(quote.premiumAtto)} GEN`
-                  : "Quote first"}
+            {quoteN.status === "pending" ? "Pricing…" : quote ? "Re-quote" : "Get quote"}
           </button>
         </div>
         <Notice n={quoteN} />
-        <Notice n={issueN} />
-        {needPool && (
-          <div className="btn-row">
-            <button className="btn btn-ghost btn-sm" onClick={onGoPools}>
-              Fund the {TIER_NAMES[needPool].toLowerCase()} pool as an LP
-            </button>
+
+        {quote && !review && (
+          <div className="quote-box">
+            <div className="quote-premium">
+              <div className="quote-premium-label">Premium due</div>
+              <div className="quote-premium-val">
+                {gen(quote.premiumAtto)}
+                <span>GEN</span>
+              </div>
+              <div className="quote-premium-sub">
+                {TIER_NAMES[quote.tier]} tier · {quote.rate_bps / 100}% of coverage
+              </div>
+            </div>
+            {!needPool ? (
+              <button
+                className="btn btn-primary"
+                disabled={issueN.status === "pending"}
+                onClick={doIssue}
+              >
+                {issueN.status === "pending"
+                  ? "Issuing…"
+                  : `Review & pay ${gen(quote.premiumAtto)} GEN`}
+              </button>
+            ) : (
+              <div className="quote-cta">
+                <button className="btn btn-ghost btn-sm" onClick={onGoPools}>
+                  Fund the {TIER_NAMES[needPool].toLowerCase()} pool as an LP
+                </button>
+              </div>
+            )}
           </div>
         )}
+        <Notice n={issueN} />
 
         {review && (
           <div className="review">
@@ -886,6 +1129,7 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       const addr = await ensureWallet();
       const { hash } = await submitDeliverable(addr, dJobId, dHash);
       setDN({ status: "ok", title: "Deliverable recorded", detail: `tx ${hash}` });
+      pushFeed({ action: "deliverable", jobId: dJobId.trim() });
     } catch (e: any) {
       setDN({ status: "error", title: "Submission failed", detail: errText(e) });
     }
@@ -900,10 +1144,13 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
       const { hash } = await fileClaim(addr, cJobId);
       setCSince(null);
       setCN({ status: "ok", title: "Claim finalized", detail: `tx ${hash}` });
+      pushFeed({ action: "claim", jobId: cJobId.trim() });
       try {
         const v = (await getClaimStatus(cJobId)) as Verdict;
         setVerdict(v);
-        setCN(idleNotice); // the verdict box below says it all
+        setCN(idleNotice); // the verdict stamp below says it all
+        if (v !== "unresolved")
+          pushFeed({ action: "verdict", jobId: cJobId.trim(), verdict: v });
       } catch {
         /* verdict read is a bonus; the tx result already matters */
       }
@@ -1000,7 +1247,9 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
         </div>
         <Notice n={cN} />
         {cN.status === "pending" && cSince && <ConsensusPending since={cSince} />}
-        {verdict && <VerdictBox v={verdict} detail={verdictText[verdict]} />}
+        {verdict && (
+          <VerdictStamp v={verdict} jobId={cJobId.trim()} detail={verdictText[verdict]} />
+        )}
       </div>
 
       <div className="panel">
@@ -1020,7 +1269,9 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
           </button>
         </div>
         <Notice n={vN} />
-        {vResult && <VerdictBox v={vResult} detail={verdictText[vResult]} />}
+        {vResult && (
+          <VerdictStamp v={vResult} jobId={vJobId.trim()} detail={verdictText[vResult]} />
+        )}
       </div>
     </div>
   );
@@ -1139,7 +1390,6 @@ export default function Home() {
           </svg>
           <div className="brand-meta">
             <span className="brand-mark">Aegis</span>
-            <span className="brand-sub">Agent non-performance insurance</span>
           </div>
         </div>
         <div className="top-actions">
@@ -1165,98 +1415,68 @@ export default function Home() {
 
       {/* ------------------------------------------------------------ hero */}
       <section className="hero">
-        <div>
+        <div className="hero-lead">
           <p className="eyebrow">GenLayer · autonomous insurance ledger</p>
           <h1>
             Insure the work, <em>not the promise.</em>
           </h1>
-          <p className="lead">
-            Aegis sells coverage on agent performance. Pools underwrite it, premiums
-            price off an agent&apos;s reputation tier, and a missed deadline pays out
-            automatically — judged on-chain, not on trust.
-          </p>
           <p className="hero-addr">
             <b>Contract</b> {AEGIS_ADDRESS ?? "not configured"}
-            {AEGIS_ADDRESS && <> · {NET_LABEL}</>}
+            {AEGIS_ADDRESS && <> · {NET_LABEL} · non-performance insurance for agent work</>}
           </p>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">GEN pooled across tiers</div>
-          <div className="stat-value">
-            {poolsBusy ? (
-              <span className="skel skel-num" aria-hidden="true" />
-            ) : (
-              gen(tvl, 2)
+
+        <div className="hero-board">
+          <div className="panel hero-left">
+            <div className="board-head">
+              <span className="board-title">Underwriting pools</span>
+              <span className="board-tools">
+                {lastRefreshed !== null && !poolsBusy && (
+                  <span className="ts-note">
+                    Updated {new Date(lastRefreshed).toLocaleTimeString()}
+                  </span>
+                )}
+                <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
+                  {poolsBusy ? "Refreshing…" : "Refresh"}
+                </button>
+              </span>
+            </div>
+
+            {poolsError && (
+              <Notice
+                n={{ status: "error", title: "Some pools are unreachable", detail: poolsError }}
+                style={{ marginBottom: 4 }}
+              />
             )}
-            <span style={{ fontSize: 16, fontWeight: 600, color: "var(--text-dim)" }}> GEN</span>
+
+            <TierBars pools={pools} tvl={tvl} />
+
+            <div className="risk-foot">
+              <span>
+                {poolsSlow
+                  ? "Network looks slow — hit Refresh when it settles."
+                  : poolsBusy
+                    ? "Reading live pool state…"
+                    : `${loaded} of 4 tiers live · ${gen(tvl, 2)} GEN pooled`}
+              </span>
+              {!poolsBusy && loaded === 4 && (
+                <span>a breach pays from the tier pool that backed it</span>
+              )}
+            </div>
           </div>
-          <div className="stat-sub">
-            {poolsSlow
-              ? "Network may be slow — data is taking a while. Try refreshing."
-              : poolsBusy
-                ? "Reading live pool state…"
-                : `${loaded} of 4 tiers live · a breach pays from the tier pool that backed it`}
+
+          <div className="panel hero-right">
+            <div className="board-head">
+              <span className="board-title">Live activity</span>
+            </div>
+            <Feed />
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------------- pool tiles */}
-      <div className="tiles-head">
-        <div>
-          <h2 className="tiles-title">Underwriting pools</h2>
-          <p className="tiles-hint">Deposits back active coverage; premiums accrue to the pool.</p>
-        </div>
-        <div className="tiles-right">
-          <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
-            {poolsBusy ? "Refreshing…" : "Refresh"}
-          </button>
-          {lastRefreshed !== null && !poolsBusy && (
-            <span className="ts-note">Updated {new Date(lastRefreshed).toLocaleTimeString()}</span>
-          )}
-        </div>
-      </div>
-
-      {poolsError && (
-        <Notice
-          n={{ status: "error", title: "Couldn't reach every pool", detail: poolsError }}
-          style={{ marginBottom: 12 }}
-        />
-      )}
-
-      <div className="tiles">
-        {TIERS.map((t) => {
-          const p = pools[t];
-          return (
-            <div key={t} className={`tile t-${t}`}>
-              <div className="tile-top">
-                <span className="tile-dot" />
-                <span className="tile-name">{TIER_NAMES[t]}</span>
-              </div>
-              {p ? (
-                <div className="tile-bal">
-                  {gen(p.balance, 2)}
-                  <small>GEN</small>
-                </div>
-              ) : poolsBusy ? (
-                <div className="tile-empty">loading…</div>
-              ) : (
-                <div className="tile-empty">—</div>
-              )}
-              <div className="tile-rows">
-                <span>
-                  Backing cover <b>{p ? `${gen(p.locked, 2)} GEN` : "—"}</b>
-                </span>
-                <span>
-                  LP shares <b>{p ? p.shares.toString() : "—"}</b>
-                </span>
-                <span>
-                  Premium rate <b>{RATE_BPS_BY_TIER[t] / 100}% of cover</b>
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* -------------------------------------------- pool tiles removed here
+          (the redesign moved pool state into the hero-left TierBars board;
+           Pools tab below still owns the deposit/withdraw workflow) */}
 
       {/* ------------------------------------------------------------ tabs */}
       <div className="tabs" role="tablist">

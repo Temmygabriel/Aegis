@@ -1,25 +1,18 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Space_Grotesk, Space_Mono } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const fraunces = Fraunces({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-display-src",
-  display: "swap",
-});
-
-const plexSans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-body-src",
   display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
+const spaceMono = Space_Mono({
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "700"],
   variable: "--font-mono-src",
   display: "swap",
 });
@@ -38,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${fraunces.variable} ${plexSans.variable} ${plexMono.variable}`}
+        className={`${spaceGrotesk.variable} ${spaceMono.variable}`}
       >
         <Providers>{children}</Providers>
       </body>

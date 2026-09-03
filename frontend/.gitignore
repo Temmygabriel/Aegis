@@ -9,3 +9,6 @@ npm-debug.log*
 
 # esbuild syntax-check output
 .esbuild-check/
+
+# local tsc incremental cache
+*.tsbuildinfo
