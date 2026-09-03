@@ -5,6 +5,34 @@ within each section; keep this updated as work happens.
 
 ## Status (2026-09-03)
 
+- **Done (mock-exact war-room UI, aligning `aegis_redesign_mockup.html`):**
+  implemented on `app/page.tsx` + `app/globals.css`. The marketing
+  hero-lead/headline block is gone — the page now opens on the two-panel war
+  room (`1fr 340px` grid): **left** = "Risk pool overview" eyebrow + Refresh /
+  "Updated …" tools, the conic **capital-utilisation ring** (copper arc =
+  live `sum(locked)/sum(balance)`, honest stand-in for the mock's illustrative
+  45%) around a small shield, big **TVL** number + "N% · X GEN locked on
+  active cover" sub-line, the four tier tension bars, and a dim contract-
+  address footline; **right** = "Recent activity" feed (real localStorage
+  writes, same empty state). Tabs reordered **Agents · Coverage · Pools ·
+  Claims**, **Coverage active on load**. Coverage tab rebuilt to the mock's
+  three-part composition: **Quote & issue cover** panel (Agent/Coverage row →
+  Job → Spec → Deadline fields; after Get quote a quote-box with a tier
+  badge + "Premium due" + one-click **Issue policy →** that re-quotes at pay
+  time — a drift just refreshes the box; empty-pool gate jumps to Pools),
+  **Policy status** panel (Look up renders a visualized card: status chip,
+  2×2 Agent/Pool tier/Coverage/Payout grid reading `get_claim_status` for
+  resolved claims, and an honest conformance track — 40 threshold tick + 0–100
+  legend, **no fabricated fill** since the contract stores no score), and a
+  full-width **verdict strip** that only renders for a real resolved
+  inspection. `VerdictStamp` gained an optional detail note. `RATE_BPS_BY_TIER`
+  import dropped. esbuild TSX parse gate passes. **Not yet visually confirmed
+  on the Vercel build.**
+- **Next:** push → confirm the live build reads like the mock (war-room hero,
+  TVL ring + bars + feed, Coverage default, quote-box + policy card, verdict
+  strip); then the demo-docs sync (`aegis-demo-plan.md`, `aegis-submission-note.md`,
+  captions) against whatever the final on-screen labels are, and the folder
+  cleanup of the similar working docs.
 - **Done (war-room redesign):** implemented `aegis-ui-redesign.md` on
   `layout.tsx` (Space Grotesk + Space Mono replace Fraunces/IBM Plex),
   `globals.css` (darker `#07090f` bg + tighter radial glows, new copper

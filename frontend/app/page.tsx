@@ -21,7 +21,6 @@ import {
   getClaimStatus,
   parseGenToAtto,
   formatAttoToGen,
-  RATE_BPS_BY_TIER,
   cleanContractError,
   toBig,
 } from "@/lib/aegisClient";
@@ -241,11 +240,13 @@ function VerdictStamp({
   jobId,
   detail,
   amount,
+  note,
 }: {
   v: Verdict;
   jobId: string;
   detail: string;
   amount?: string;
+  note?: string;
 }) {
   const cls = v === "upheld" ? "upheld" : v === "rejected" ? "rejected" : "";
   return (
@@ -270,6 +271,7 @@ function VerdictStamp({
       <div className="verdict-info">
         <div className="verdict-job mono">{jobId}</div>
         <div className="verdict-headline">{detail}</div>
+        {note && <div className="verdict-detail">{note}</div>}
       </div>
       {amount && (
         <div className="verdict-amount-col">
@@ -311,7 +313,9 @@ function TierBars({ pools, tvl }: { pools: Record<Tier, PoolSnap>; tvl: bigint }
                 )}
               </div>
             </div>
-            <span className="tb-val">{p ? gen(p.balance, 1) : "—"} GEN</span>
+            <span className="tb-val" style={{ color }}>
+              {p ? gen(p.balance, 1) : "—"} GEN
+            </span>
             <span className="tb-rate" style={{ color }}>
               {rate}
             </span>
@@ -756,22 +760,13 @@ function CoveragePanel({
   const [quoteN, setQuoteN] = useState<Notice>(idleNotice);
   const [issueN, setIssueN] = useState<Notice>(idleNotice);
 
-  // Policy the buyer is about to pay for -- held for review before any money
-  // moves. Nothing is sent until Confirm is clicked.
-  const [review, setReview] = useState<null | {
-    jobId: string;
-    agentId: string;
-    coverageAtto: bigint;
-    specHash: string;
-    deadline: string;
-    premiumAtto: bigint;
-    tier: Tier;
-  }>(null);
   // Set when the quote succeeded but the agent's tier pool has no LP capital.
   const [needPool, setNeedPool] = useState<Tier | null>(null);
 
   const [polJob, setPolJob] = useState("job-001");
   const [pol, setPol] = useState<PolicyInfo | null>(null);
+  // Verdict read for a looked-up policy, only present once it was claimed.
+  const [polClaim, setPolClaim] = useState<Verdict | null>(null);
   const [polN, setPolN] = useState<Notice>(idleNotice);
 
   async function doQuote() {
@@ -783,85 +778,103 @@ function CoveragePanel({
       const q = await quotePremium(covAgentId, cov);
       const premiumAtto = toBig(q.premium_atto);
       setQuote({ tier: q.tier, rate_bps: Number(q.rate_bps), premiumAtto });
-      // The quote-box below carries the "quote ready" readout now.
-      setQuoteN(idleNotice);
-    } catch (e: any) {
-      setQuoteN({ status: "error", title: "Couldn't get a quote", detail: errText(e) });
-    }
-  }
-
-  /** Quote-first + pool-gate, then hold the terms up for review. Nothing is
-   * paid until the buyer hits Confirm, so a stale quote can never fire a tx
-   * that the chain rejects for a wrong premium. */
-  async function doIssue() {
-    if (!quote) return;
-    setReview(null);
-    setNeedPool(null);
-    setIssueN(idleNotice);
-    try {
-      const cov = parseGenToAtto(coverage);
-      // Always re-quote at pay time: if the agent's tier just changed, the
-      // premium shown for review is the current one, not a stale cache.
-      const q = await quotePremium(covAgentId, cov);
-      const freshPremium = toBig(q.premium_atto);
-      const next = {
-        jobId: jobId.trim(),
-        agentId: covAgentId.trim(),
-        coverageAtto: cov,
-        specHash: specHash.trim(),
-        deadline,
-        premiumAtto: freshPremium,
-        tier: q.tier,
-      };
-      setQuote({ tier: q.tier, rate_bps: Number(q.rate_bps), premiumAtto: freshPremium });
-      // Empty-pool gate: issuing needs LP capital in the agent's tier pool.
+      // Empty-pool gate surfaces here, right after the quote, so the box below
+      // shows the "fund the pool" action instead of a dead "Issue" button.
       const pool = await getPoolInfo(q.tier);
       if (toBig(pool.balance_atto) === 0n) {
         setNeedPool(q.tier);
-        setQuoteN(idleNotice);
-        setIssueN({
+        setQuoteN({
           status: "error",
           title: `No underwriting capital in the ${TIER_NAMES[q.tier]} pool yet`,
           detail: `This policy can't be issued until an LP deposits into the ${TIER_NAMES[q.tier].toLowerCase()} pool.`,
         });
         return;
       }
-      setIssueN(idleNotice);
-      setReview(next);
+      setQuoteN(idleNotice);
     } catch (e: any) {
-      setIssueN({ status: "error", title: "Couldn't prepare your policy", detail: errText(e) });
+      setQuoteN({ status: "error", title: "Couldn't get a quote", detail: errText(e) });
     }
   }
 
-  /** Final, irreversible step -- only reachable from the review panel. */
-  async function doConfirmIssue() {
-    if (!review) return;
-    setIssueN({ status: "pending", title: "Issuing policy on-chain…" });
+  /** One-click buy. Re-quotes at the exact moment of payment so a stale tier
+   * can never fire a wrong-premium revert — a drift just refreshes the box
+   * and asks for one more click. Empty pools redirect to funding. On success
+   * the new policy auto-appears in the status panel. */
+  async function doIssue() {
+    if (!quote) return;
+    setIssueN(idleNotice);
+    setNeedPool(null);
     try {
+      const cov = parseGenToAtto(coverage);
+      const q = await quotePremium(covAgentId, cov);
+      const freshPremium = toBig(q.premium_atto);
+      setQuote({ tier: q.tier, rate_bps: Number(q.rate_bps), premiumAtto: freshPremium });
+      const pool = await getPoolInfo(q.tier);
+      if (toBig(pool.balance_atto) === 0n) {
+        setNeedPool(q.tier);
+        setIssueN({
+          status: "error",
+          title: `No underwriting capital in the ${TIER_NAMES[q.tier]} pool yet`,
+          detail: `Fund the ${TIER_NAMES[q.tier].toLowerCase()} pool first (Pools tab), then issue again.`,
+        });
+        return;
+      }
+      // Premium drifted since the quote was shown: refresh the box rather than
+      // send an amount the chain would reject as a wrong exact premium.
+      if (freshPremium !== quote.premiumAtto) {
+        setQuoteN(idleNotice);
+        setIssueN({
+          status: "ok",
+          title: "Premium updated",
+          detail: `The tier rate moved — the box now shows the current ${gen(freshPremium)} GEN. Press "Issue policy" again to pay exactly that.`,
+        });
+        return;
+      }
+      setIssueN({ status: "pending", title: "Issuing policy on-chain…" });
       const addr = await ensureWallet();
+      const job = jobId.trim();
+      const agent = covAgentId.trim();
       const { hash } = await issuePolicy(
         addr,
-        review.jobId,
-        review.agentId,
-        review.coverageAtto,
-        review.specHash,
-        review.deadline,
-        review.premiumAtto
+        job,
+        agent,
+        cov,
+        specHash.trim(),
+        deadline,
+        quote.premiumAtto
       );
-      setReview(null);
       setQuote(null);
       setQuoteN(idleNotice);
       setIssueN({ status: "ok", title: "Policy is live", detail: `tx ${hash}` });
       pushFeed({
         action: "issue",
-        jobId: review.jobId,
-        agentId: review.agentId,
-        amount: `${gen(review.premiumAtto)} GEN`,
-        tier: TIER_NAMES[review.tier],
+        jobId: job,
+        agentId: agent,
+        amount: `${gen(quote.premiumAtto)} GEN`,
+        tier: TIER_NAMES[q.tier],
       });
-      setPolJob(review.jobId);
+      // Surface the new policy in the status panel immediately.
+      setPolJob(job);
+      setPolN({ status: "pending", title: "Reading your new policy…" });
+      try {
+        const p = await getPolicy(job);
+        setPol(p);
+        setPolClaim(p.status === "claimed" ? await readClaimStatus(job) : null);
+        setPolN(idleNotice);
+      } catch {
+        setPolN(idleNotice);
+      }
     } catch (e: any) {
       setIssueN({ status: "error", title: "Issue failed", detail: errText(e) });
+    }
+  }
+
+  /** get_claim_status is a bonus read that can 404 if no claim ever existed. */
+  async function readClaimStatus(job: string): Promise<Verdict | null> {
+    try {
+      return (await getClaimStatus(job)) as Verdict;
+    } catch {
+      return null;
     }
   }
 
@@ -870,29 +883,61 @@ function CoveragePanel({
     try {
       const p = await getPolicy(polJob);
       setPol(p);
+      setPolClaim(p.status === "claimed" ? await readClaimStatus(polJob.trim()) : null);
       setPolN(idleNotice);
     } catch (e: any) {
       setPol(null);
+      setPolClaim(null);
       setPolN({ status: "error", title: "Lookup failed", detail: errText(e) });
     }
   }
 
+  // Derived display state for the policy-status card + verdict strip.
+  const st = pol ? derivePolicyState(pol) : null;
+  const resolved =
+    pol?.status === "claimed" && (polClaim === "upheld" || polClaim === "rejected")
+      ? polClaim
+      : null;
+  const chipLabel =
+    pol?.status === "claimed"
+      ? polClaim === "upheld"
+        ? "Claimed · paid out"
+        : polClaim === "rejected"
+          ? "Claim rejected"
+          : "Claim in review"
+      : st?.label;
+  const chipCls =
+    pol?.status === "claimed"
+      ? polClaim === "upheld"
+        ? "claimed"
+        : polClaim === "rejected"
+          ? "rejected"
+          : "breach"
+      : st?.cls ?? "";
+  const noDeliverable = !pol || !(pol.deliverable_hash ?? "").trim();
+  const scoreNote = resolved
+    ? resolved === "upheld"
+      ? noDeliverable
+        ? "Deterministic breach: no deliverable was on file by the deadline, so validators committed it — no conformance score."
+        : "Validators independently re-fetched the spec and the deliverable and judged conformance. UPHELD — the payout left the pool."
+      : "Validators independently re-fetched the spec and the deliverable and judged it conforming. REJECTED — the claim bond was forfeited."
+    : pol?.status === "claimed"
+      ? "This claim is being resolved — validators are independently re-fetching the evidence."
+      : pol
+        ? "Conformance is scored 0–100 against the spec. A claim is upheld below 40; 40 or higher pays nothing."
+        : null;
+
   return (
-    <div className="grid grid-gap-lg">
+    <div className="grid grid-gap-lg coverage-main">
+      {/* --------------------------------------------- quote & issue (left) */}
       <div className="panel">
         <div className="panel-head">
           <div>
-            <h3 className="panel-title">Quote &amp; buy cover</h3>
+            <h3 className="panel-title">Quote &amp; issue cover</h3>
             <p className="panel-desc">
-              A buyer protects a payout against an agent. The premium is set by the
-              agent&apos;s tier and must be paid <em>exactly</em> as the transaction value —
-              so always quote first, then issue.
+              Premiums are exact and deterministic — quote first, then pay.
             </p>
           </div>
-        </div>
-        <div className="field">
-          <label htmlFor="covJob">Job ID</label>
-          <input id="covJob" className="input" value={jobId} onChange={(e) => setJobId(e.target.value)} />
         </div>
         <div className="form-2col">
           <div className="field">
@@ -905,23 +950,26 @@ function CoveragePanel({
           </div>
         </div>
         <div className="field">
-          <label htmlFor="specHash">Spec — IPFS CID of the job</label>
+          <label htmlFor="covJob">Job ID</label>
+          <input id="covJob" className="input" value={jobId} onChange={(e) => setJobId(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="specHash">Spec — IPFS CID</label>
           <input
             id="specHash"
             className="input"
             value={specHash}
             onChange={(e) => setSpecHash(e.target.value)}
-            placeholder="Qm…"
+            placeholder="Qm… or bafy…"
           />
           <p className="hint" style={{ marginTop: 2 }}>
-            Pin your job spec to IPFS (e.g. via <code>web3.storage</code> or{" "}
-            <code>ipfs add</code>) and paste the resulting CID here. It must start
-            with <code>Qm</code> (CIDv0) or <code>bafy</code> (CIDv1) — a mutable
-            URL is rejected so every validator fetches the same bytes.
+            The contract never fetches this on the deterministic-breach path, so a
+            shape-valid CID is enough for the demo; a judged claim needs a CID that
+            actually resolves on IPFS.
           </p>
         </div>
         <div className="field">
-          <label htmlFor="deadline">Deadline (ISO, must be in the future)</label>
+          <label htmlFor="deadline">Deadline (ISO, must be future)</label>
           <input id="deadline" className="input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
         </div>
         <div className="btn-row">
@@ -931,173 +979,152 @@ function CoveragePanel({
         </div>
         <Notice n={quoteN} />
 
-        {quote && !review && (
+        {quote && (
           <div className="quote-box">
-            <div className="quote-premium">
-              <div className="quote-premium-label">Premium due</div>
-              <div className="quote-premium-val">
-                {gen(quote.premiumAtto)}
-                <span>GEN</span>
-              </div>
-              <div className="quote-premium-sub">
-                {TIER_NAMES[quote.tier]} tier · {quote.rate_bps / 100}% of coverage
-              </div>
+            <div className="quote-left">
+              <span className={`quote-tier-badge t-${quote.tier}`}>
+                {TIER_NAMES[quote.tier]} tier · {quote.rate_bps / 100}%
+              </span>
+              <span className="quote-label">Premium due</span>
+              <span className="quote-premium">
+                {gen(quote.premiumAtto)} <span>GEN</span>
+              </span>
             </div>
             {!needPool ? (
               <button
-                className="btn btn-primary"
+                className="btn btn-primary issue-cta"
                 disabled={issueN.status === "pending"}
                 onClick={doIssue}
               >
-                {issueN.status === "pending"
-                  ? "Issuing…"
-                  : `Review & pay ${gen(quote.premiumAtto)} GEN`}
+                {issueN.status === "pending" ? "Issuing…" : "Issue policy →"}
               </button>
             ) : (
-              <div className="quote-cta">
-                <button className="btn btn-ghost btn-sm" onClick={onGoPools}>
-                  Fund the {TIER_NAMES[needPool].toLowerCase()} pool as an LP
-                </button>
-              </div>
+              <button className="btn btn-ghost btn-sm issue-cta" onClick={onGoPools}>
+                Fund the {TIER_NAMES[needPool].toLowerCase()} pool as an LP
+              </button>
             )}
           </div>
         )}
         <Notice n={issueN} />
-
-        {review && (
-          <div className="review">
-            <div className="review-title">Review your policy</div>
-            <div className="kv">
-              <div>
-                <span className="kv-label">Job ID</span>
-                <span className="kv-value mono">{review.jobId}</span>
-              </div>
-              <div>
-                <span className="kv-label">Agent</span>
-                <span className="kv-value mono">{review.agentId}</span>
-              </div>
-              <div>
-                <span className="kv-label">Tier / rate</span>
-                <span className="kv-value">
-                  <span className={`tier-badge t-${review.tier}`}>{TIER_NAMES[review.tier]}</span>{" "}
-                  {RATE_BPS_BY_TIER[review.tier] / 100}% of coverage
-                </span>
-              </div>
-              <div>
-                <span className="kv-label">Coverage</span>
-                <span className="kv-value">{gen(review.coverageAtto)} GEN</span>
-              </div>
-              <div>
-                <span className="kv-label">Premium (paid now)</span>
-                <span className="kv-value">{gen(review.premiumAtto)} GEN</span>
-              </div>
-              <div>
-                <span className="kv-label">Deadline</span>
-                <span className="kv-value mono">{review.deadline}</span>
-              </div>
-              <div>
-                <span className="kv-label">Spec</span>
-                <span className="kv-value mono">{review.specHash || "—"}</span>
-              </div>
-            </div>
-            <div className="btn-row" style={{ marginTop: 4 }}>
-              <button
-                className="btn btn-primary"
-                disabled={issueN.status === "pending"}
-                onClick={doConfirmIssue}
-              >
-                {issueN.status === "pending"
-                  ? "Issuing…"
-                  : `Confirm & pay ${gen(review.premiumAtto)} GEN`}
-              </button>
-              <button
-                className="btn btn-ghost"
-                disabled={issueN.status === "pending"}
-                onClick={() => setReview(null)}
-              >
-                Edit
-              </button>
-            </div>
-            <p className="hint">
-              Confirm sends the exact premium shown. A job can only be insured once
-              and this can&apos;t be undone — use Edit to change the terms above.
-            </p>
-          </div>
-        )}
       </div>
 
+      {/* ------------------------------------------- policy status (right) */}
       <div className="panel">
         <div className="panel-head">
           <div>
-            <h3 className="panel-title">Inspect a policy</h3>
-            <p className="panel-desc">Coverage, spec, deadline, and current status of any job.</p>
+            <h3 className="panel-title">Policy status</h3>
+            <p className="panel-desc">Live state of any insured job.</p>
           </div>
         </div>
         <div className="field">
           <label htmlFor="polJob">Job ID</label>
-          <input id="polJob" className="input" value={polJob} onChange={(e) => setPolJob(e.target.value)} />
-        </div>
-        <div className="btn-row">
-          <button className="btn btn-ghost" disabled={polN.status === "pending"} onClick={doPolicyLookup}>
-            {polN.status === "pending" ? "Loading…" : "Look up"}
-          </button>
+          <div className="pol-lookup-row">
+            <input
+              id="polJob"
+              className="input"
+              value={polJob}
+              onChange={(e) => setPolJob(e.target.value)}
+            />
+            <button className="btn btn-ghost" disabled={polN.status === "pending"} onClick={doPolicyLookup}>
+              {polN.status === "pending" ? "Loading…" : "Look up"}
+            </button>
+          </div>
         </div>
         <Notice n={polN} />
 
-        {pol && (
-          <>
-            <div className="kv">
-            <div>
-              <span className="kv-label">Status</span>
-              <span className="kv-value">
-                <span className={`chip ${derivePolicyState(pol).cls}`}>
-                  {derivePolicyState(pol).label}
+        {pol && st && (
+          <div className={`pol-card ${chipCls}`}>
+            <div className="pol-head">
+              <span className="pol-k">Status</span>
+              <span className={`chip ${chipCls}`}>{chipLabel}</span>
+            </div>
+            <div className="pol-grid">
+              <div className="pol-cell">
+                <span className="pol-k">Agent</span>
+                <span className="pol-v mono">{pol.agent_id}</span>
+              </div>
+              <div className="pol-cell">
+                <span className="pol-k">Pool tier</span>
+                <span className="pol-v">
+                  <span className={`tier-badge t-${pol.pool_tier}`}>{TIER_NAMES[pol.pool_tier]}</span>
                 </span>
-              </span>
+              </div>
+              <div className="pol-cell">
+                <span className="pol-k">Coverage</span>
+                <span className="pol-v mono">{gen(pol.coverage_atto)} GEN</span>
+              </div>
+              <div className="pol-cell">
+                <span className="pol-k">
+                  {resolved
+                    ? resolved === "upheld"
+                      ? "Payout sent"
+                      : "Bond forfeited"
+                    : "Payout"}
+                </span>
+                <span
+                  className={`pol-v mono ${resolved === "upheld" ? "ok" : resolved === "rejected" ? "dim" : ""}`}
+                >
+                  {resolved === "upheld"
+                    ? `${gen(pol.coverage_atto)} GEN`
+                    : resolved === "rejected"
+                      ? `${gen(CLAIM_BOND_ATTO)} GEN`
+                      : "—"}
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="kv-label">Agent</span>
-              <span className="kv-value mono">{pol.agent_id}</span>
-            </div>
-            <div>
-              <span className="kv-label">Buyer</span>
-              <span className="kv-value mono">{pol.buyer}</span>
-            </div>
-            <div>
-              <span className="kv-label">Pool tier</span>
-              <span className="kv-value">
-                <span className={`tier-badge t-${pol.pool_tier}`}>{TIER_NAMES[pol.pool_tier]}</span>
-              </span>
-            </div>
-            <div>
-              <span className="kv-label">Coverage</span>
-              <span className="kv-value">{gen(pol.coverage_atto)} GEN</span>
-            </div>
-            <div>
-              <span className="kv-label">Spec hash</span>
-              <span className="kv-value mono">{pol.spec_hash || "—"}</span>
-            </div>
-            <div>
-              <span className="kv-label">Deliverable</span>
-              <span className="kv-value mono">{pol.deliverable_hash || "not submitted yet"}</span>
-            </div>
-            <div>
-              <span className="kv-label">Deadline</span>
-              <span className="kv-value mono">{pol.deadline_iso}</span>
+
+            <div className="score-line">
+              <div className="score-track">
+                <span className="score-threshold" />
+              </div>
+              <div className="score-labels">
+                <span>breach below 40</span>
+                <span>conforming</span>
+              </div>
+              {scoreNote && <p className="score-note">{scoreNote}</p>}
             </div>
           </div>
-          {derivePolicyState(pol).action && (
-            <p className="action-tip">💡 {derivePolicyState(pol).action}</p>
-          )}
-          </>
         )}
         {!pol && polN.status !== "error" && (
           <p className="hint">
-            Submitted a deliverable? It shows here. A policy with no deliverable and a
-            passed deadline is an automatic breach — no AI needed, the clock decides.
+            Look up a job id to see its status, coverage, pool tier — and, once a
+            claim resolves, the payout below.
           </p>
         )}
       </div>
+
+      {/* full-width verdict strip: only for a real, resolved inspection */}
+      {resolved && pol && (
+        <div className="verdict-panel">
+          <VerdictStamp
+            v={resolved}
+            jobId={`${polJob.trim()} · ${pol.agent_id} · ${TIER_NAMES[pol.pool_tier]} tier`}
+            detail={
+              resolved === "upheld"
+                ? "Claim upheld — breach confirmed"
+                : "Claim rejected — deliverable met the spec"
+            }
+            amount={
+              resolved === "upheld"
+                ? `${gen(pol.coverage_atto)} GEN`
+                : `${gen(CLAIM_BOND_ATTO)} GEN`
+            }
+            note={
+              resolved === "upheld"
+                ? "The verdict is final on-chain — the payout moved from the pool and the claim bond was refunded. No one clicked pay."
+                : "The verdict is final on-chain — the claim bond was forfeited into the pool."
+            }
+          />
+        </div>
+      )}
+      {pol?.status === "claimed" && !resolved && (
+        <div className="verdict-panel">
+          <p className="hint" style={{ gridColumn: "1 / -1" }}>
+            This claim is still being resolved — the verdict stamp will land here once
+            consensus commits.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1280,18 +1307,18 @@ function ClaimsPanel({ ensureWallet }: { ensureWallet: EnsureWallet }) {
 /* ================================================================ PAGE === */
 
 type PoolSnap = { balance: bigint; locked: bigint; shares: bigint } | null;
-type TabKey = "agents" | "pools" | "coverage" | "claims";
+type TabKey = "agents" | "coverage" | "pools" | "claims";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "agents", label: "Agents" },
-  { key: "pools", label: "Pools" },
   { key: "coverage", label: "Coverage" },
+  { key: "pools", label: "Pools" },
   { key: "claims", label: "Claims" },
 ];
 
 export default function Home() {
   const { identity, ready } = useIdentity();
-  const [tab, setTab] = useState<TabKey>("agents");
+  const [tab, setTab] = useState<TabKey>("coverage");
 
   const [pools, setPools] = useState<Record<Tier, PoolSnap>>({
     unrated: null,
@@ -1310,6 +1337,7 @@ export default function Home() {
 
   const loadPools = useCallback(async () => {
     setPoolsBusy(true);
+    setPoolsSlow(false);
     setPoolsError(null);
     const next: Record<Tier, PoolSnap> = { unrated: null, bronze: null, silver: null, gold: null };
     for (const t of TIERS) {
@@ -1355,7 +1383,17 @@ export default function Home() {
     return acc + (p ? p.balance : 0n);
   }, 0n);
 
-  const loaded = TIERS.filter((t) => pools[t] !== null).length;
+  const locked = TIERS.reduce((acc, t) => {
+    const p = pools[t];
+    return acc + (p ? p.locked : 0n);
+  }, 0n);
+
+  // Capital utilisation = GEN locked backing live cover / total pooled. This
+  // is the honest live stand-in for the mock's "45% · 12 live policies" —
+  // the contract exposes no policy count, but it does expose locked exposure.
+  const utilPct = tvl > 0n ? Math.min(100, Math.round((Number(locked) / Number(tvl)) * 100)) : 0;
+  const ringArc = tvl > 0n ? Math.min(360, (Number(locked) / Number(tvl)) * 360) : 0;
+  const ringBg = `conic-gradient(var(--copper) 0deg ${ringArc}deg, var(--line-strong) ${ringArc}deg 360deg)`;
 
   return (
     <div className="shell">
@@ -1390,6 +1428,7 @@ export default function Home() {
           </svg>
           <div className="brand-meta">
             <span className="brand-mark">Aegis</span>
+            <span className="brand-sub">Agent insurance on {NET_LABEL}</span>
           </div>
         </div>
         <div className="top-actions">
@@ -1415,62 +1454,84 @@ export default function Home() {
 
       {/* ------------------------------------------------------------ hero */}
       <section className="hero">
-        <div className="hero-lead">
-          <p className="eyebrow">GenLayer · autonomous insurance ledger</p>
-          <h1>
-            Insure the work, <em>not the promise.</em>
-          </h1>
+        {/* LEFT — risk pool overview: utilisation ring, TVL, tier bars */}
+        <div className="hero-left">
+          <div className="hero-eyebrow-row">
+            <span className="hero-eyebrow">Risk pool overview</span>
+            <span className="board-tools">
+              {poolsBusy && poolsSlow && (
+                <span className="ts-note">Network slow — hit Refresh when it settles</span>
+              )}
+              {poolsBusy && !poolsSlow && <span className="ts-note">Reading…</span>}
+              {!poolsBusy && lastRefreshed !== null && (
+                <span className="ts-note">Updated {new Date(lastRefreshed).toLocaleTimeString()}</span>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
+                {poolsBusy ? "Refreshing…" : "Refresh"}
+              </button>
+            </span>
+          </div>
+
+          {poolsError && (
+            <Notice
+              n={{ status: "error", title: "Some pools are unreachable", detail: poolsError }}
+              style={{ marginBottom: 4 }}
+            />
+          )}
+
+          <div className="hero-shield-row">
+            <div className="big-shield">
+              <div className="shield-ring" style={{ background: ringBg }}>
+                <svg className="shield-icon-inner" width="34" height="34" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                  <path
+                    d="M14 3 L24 7 V13 C24 19 19.5 24.2 14 26 C8.5 24.2 4 19 4 13 V7 Z"
+                    stroke="#e07820"
+                    strokeWidth="1.6"
+                    fill="rgba(224,120,32,0.16)"
+                  />
+                  <path
+                    d="M9.5 14.5 L12.5 17.5 L19 11"
+                    stroke="#f7a94b"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+            <div className="hero-numbers">
+              <div className="tvl-label">Total value locked</div>
+              <div className="tvl-val">
+                {tvl > 0n ? gen(tvl, 2) : poolsBusy ? "…" : "0"}
+                <span>GEN</span>
+              </div>
+              <div className="tvl-sub">
+                Capital utilisation <b>{utilPct}%</b>
+                <span className="tvl-locked">
+                  {" · "}
+                  {gen(locked, 2)} GEN locked on active cover
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <TierBars pools={pools} tvl={tvl} />
+
           <p className="hero-addr">
             <b>Contract</b> {AEGIS_ADDRESS ?? "not configured"}
-            {AEGIS_ADDRESS && <> · {NET_LABEL} · non-performance insurance for agent work</>}
+            {AEGIS_ADDRESS && (
+              <>
+                {" · "}
+                {NET_LABEL} · non-performance insurance for agent work
+              </>
+            )}
           </p>
         </div>
 
-        <div className="hero-board">
-          <div className="panel hero-left">
-            <div className="board-head">
-              <span className="board-title">Underwriting pools</span>
-              <span className="board-tools">
-                {lastRefreshed !== null && !poolsBusy && (
-                  <span className="ts-note">
-                    Updated {new Date(lastRefreshed).toLocaleTimeString()}
-                  </span>
-                )}
-                <button className="btn btn-ghost btn-sm" onClick={loadPools} disabled={poolsBusy}>
-                  {poolsBusy ? "Refreshing…" : "Refresh"}
-                </button>
-              </span>
-            </div>
-
-            {poolsError && (
-              <Notice
-                n={{ status: "error", title: "Some pools are unreachable", detail: poolsError }}
-                style={{ marginBottom: 4 }}
-              />
-            )}
-
-            <TierBars pools={pools} tvl={tvl} />
-
-            <div className="risk-foot">
-              <span>
-                {poolsSlow
-                  ? "Network looks slow — hit Refresh when it settles."
-                  : poolsBusy
-                    ? "Reading live pool state…"
-                    : `${loaded} of 4 tiers live · ${gen(tvl, 2)} GEN pooled`}
-              </span>
-              {!poolsBusy && loaded === 4 && (
-                <span>a breach pays from the tier pool that backed it</span>
-              )}
-            </div>
-          </div>
-
-          <div className="panel hero-right">
-            <div className="board-head">
-              <span className="board-title">Live activity</span>
-            </div>
-            <Feed />
-          </div>
+        {/* RIGHT — recent activity feed */}
+        <div className="hero-right">
+          <div className="feed-label">Recent activity</div>
+          <Feed />
         </div>
       </section>
 

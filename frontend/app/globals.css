@@ -1701,3 +1701,425 @@ select.input option {
     justify-content: flex-end;
   }
 }
+
+/* ===========================================================================
+   Aegis — mock-exact war-room composition (final layout)
+   Matches aegis_redesign_mockup.html: hero IS the two-panel board (no stacked
+   hero-lead); left = ring + TVL + tier bars, right = activity feed.
+   =========================================================================== */
+
+.hero {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 0;
+  align-items: stretch;
+  padding: 0;
+  margin: 4px 0 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.hero-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 30px 28px 26px;
+  border-right: 1px solid var(--line);
+}
+
+.hero-right {
+  display: flex;
+  flex-direction: column;
+  padding: 30px 24px 20px;
+  border-left: 0;
+}
+
+.hero-eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.hero-eyebrow-row .board-tools {
+  gap: 10px;
+}
+
+.hero-shield-row {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  margin-bottom: 26px;
+}
+
+.big-shield {
+  flex: none;
+  width: 86px;
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shield-ring {
+  width: 86px;
+  height: 86px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.shield-ring::before {
+  content: "";
+  position: absolute;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: var(--bg0);
+}
+
+.shield-icon-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-numbers {
+  flex: 1;
+  min-width: 0;
+}
+
+.tvl-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.tvl-val {
+  font-size: clamp(32px, 3.6vw, 42px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tvl-val span {
+  font-size: 17px;
+  color: var(--text-dim);
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.tvl-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 9px;
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+}
+
+.tvl-sub b {
+  color: var(--copper);
+  font-weight: 700;
+}
+
+.tvl-sub .tvl-locked {
+  color: var(--text-faint);
+}
+
+/* keep the tier tension bars close to the mock's typography */
+.hero-left .tier-bars {
+  gap: 13px;
+}
+
+.tb-val {
+  width: 58px;
+}
+
+.hero-left .hero-addr {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* right column feed */
+.feed-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.hero-right .feed {
+  max-height: none;
+  margin-top: 10px;
+}
+
+/* tabs sit tight under the hero now (no marketing statement above) */
+.tabs {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------------------------- hero > quote & policy panels */
+
+.coverage-main {
+  align-items: start;
+}
+
+.pol-lookup-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pol-lookup-row .input {
+  flex: 1;
+}
+
+/* policy status card — the mock's "visualized" card */
+.pol-card {
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 16px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.pol-card.claimed {
+  border-color: rgba(56, 232, 154, 0.22);
+  background: rgba(56, 232, 154, 0.04);
+}
+
+.pol-card.rejected {
+  border-color: rgba(255, 90, 80, 0.22);
+  background: rgba(255, 90, 80, 0.04);
+}
+
+.pol-card.breach {
+  border-color: rgba(247, 169, 75, 0.22);
+  background: rgba(224, 120, 32, 0.04);
+}
+
+.pol-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pol-k {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.pol-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+}
+
+.pol-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pol-v {
+  font-size: 12.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.pol-v.ok {
+  color: var(--ok);
+}
+
+.pol-v.dim {
+  color: var(--text-dim);
+}
+
+.pol-v .tier-badge {
+  font-size: 10px;
+}
+
+/* honest conformance line — threshold only, no fake fill */
+.score-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.score-track {
+  height: 8px;
+  background: var(--line);
+  border-radius: 2px;
+  position: relative;
+}
+
+.score-threshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 40%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.score-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+.score-note {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* full-width verdict strip below the two coverage panels */
+.verdict-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+}
+
+.verdict-panel .verdict-card {
+  margin: 0;
+}
+
+.verdict-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------- quote box (one-click) */
+
+.quote-box {
+  background: rgba(224, 120, 32, 0.05);
+  border: 1px solid rgba(224, 120, 32, 0.2);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.quote-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.quote-tier-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  display: inline-flex;
+  width: fit-content;
+  color: var(--accent, var(--copper));
+  background: color-mix(in srgb, var(--accent, var(--copper)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, var(--copper)) 26%, transparent);
+}
+
+.quote-label {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.quote-premium {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--copper);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.quote-premium span {
+  font-size: 12px;
+  color: var(--copper-deep);
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.issue-cta {
+  flex: none;
+}
+
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+  .hero-left {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-right {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .quote-box {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .quote-left {
+    align-items: flex-start;
+  }
+  .issue-cta {
+    align-self: stretch;
+  }
+  .hero-eyebrow-row {
+    flex-wrap: wrap;
+  }
+  .tvl-val {
+    white-space: normal;
+  }
+}
+
