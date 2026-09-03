@@ -225,18 +225,31 @@ within each section; keep this updated as work happens.
   Bradbury `0x1ad8…` (first), `0xcE82…` (holds an orphaned 20.06 GEN ledger
   from the LEADER_TIMEOUT burn — left as-is, no recovery path exists).
 
+## Live seeded state (2026-09-03)
+- **Purpose:** the war-room board read `0 GEN` on every tier after the e2e
+  drained the pools. Seeded real activity on the canonical StudioNet contract
+  so the live UI displays funded pools + a locked-exposure sliver.
+- **Seeded via `e2e/seed-live.js`** (new, committed): registered a fresh agent
+  (`agent-live-…`, fresh wallet key in `e2e/live-keys.json`, git-ignored), LP
+  deposited 10/5/3/2 GEN into unrated/bronze/silver/gold, then the buyer role
+  issued 1 GEN of cover (`job-live-…`, active, deadline ~1 h out).
+- **Live board now reads:** Unrated `10.06 GEN` (locked sliver `1.00 GEN`),
+  Bronze `5`, Silver `3`, Gold `2`. Tx hashes in the run log above (register
+  `0x2ae8…`, deposits `0x78b9…`/`0xda7d…`/`0xc74b…`/`0x9dcf…`, issue
+  `0x0da1…`).
+- The seeded policy's 1 GEN stays locked until claimed/expired — residue,
+  noted; the demo take can run its own register→deposit→issue→claim loop on
+  top (Unrated ≥ 10 GEN, so a 1 GEN payout still clears the 10% cap).
+
 ## Documentation (created 2026-09-02)
 - `docs/DEPLOYMENT.md` — per-network addresses, redeploy + verify steps, network quirks.
 - `docs/CONTRACT.md` — contract overview, public interface, parameters, security hardening.
 - `docs/dev/` — internal working notes (PROGRESS.md, PROJECT_MEMORY.md).
 
 ## Next steps
-1. Flip the live Vercel env to the canonical StudioNet deploy
-   (`0xED90a97A77cd959bB278cBDfA0f2981dF5b5B843`) and rebuild; then visually
-   confirm the UX-review round on the live site (review/confirm flow, claims
-   grouping, identity menu, tiles).
-2. Draft the GenLayer Project Explorer submission from
-   `genlayer-submission-playbook.md` (Studio + Bradbury explorer URLs, live
-   website `https://aegis-insurance-project.vercel.app/`, GitHub
-   `https://github.com/Temmygabriel/Aegis`).
-3. Keep StudioNet as the live frontend target (Bradbury stays documented only).
+1. Record the demo video from `aegis-demo-plan.md` / `aegis-demo-captions.md`
+   (working folder, above the repo): fresh browser profile, ~2-min-deadline
+   claim, leaves the planted example on-chain. Then fill the `[YOU: …]` blanks
+   in `aegis-submission-note.md` (logo, dropdown tags, YouTube link, planted
+   job id, deploy tx hashes) and submit.
+2. Keep StudioNet as the live frontend target (Bradbury stays documented only).
