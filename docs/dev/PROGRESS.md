@@ -297,6 +297,64 @@ within each section; keep this updated as work happens.
   noted; the demo take can run its own register→deposit→issue→claim loop on
   top (Unrated ≥ 10 GEN, so a 1 GEN payout still clears the 10% cap).
 
+## Final proactive review (2026-09-03, pre-submission)
+
+Adversarial re-read of `aegis.py` for every "reviewer could reject this" angle
+(sybil, gamed logic, economic drain, honest-claims accuracy), plus a test-suite
+reconfirmation: `python -m pytest tests/direct/test_aegis.py -q` → **26 passed
+in ~2.4s** at the current head.
+
+### Confirmed present (each has a regression test or a code-level trace)
+- Past-deadline issuance blocked (`test_issue_policy_rejects_past_deadline`).
+- Empty-pool first-depositor closed: `issue_policy` requires pool_value > 0 and
+  coverage ≤ pool; `deposit` hard-aborts on any unattributed balance with no
+  shares.
+- LPs cannot withdraw under live coverage (locked-exposure gate,
+  `test_withdraw_blocks_under_locked_exposure`); coverage is always ≤ pool
+  value at issuance.
+- Evidence is content-addressed only (CIDv0/v1 shape rejects mutable URLs) and
+  is agent-submitted only (a buyer can never attach their own deliverable).
+- Exact-premium enforcement, exact 2 GEN claim bond (refunded on upheld,
+  forfeited to pool on rejected), payout cap 10% of the tier pool per claim,
+  one wallet binds one agent forever, `_normalize_key` blocks case-variant
+  identity squatting.
+- Sybil ladder: min distinct buyer addresses + tenure days + min real spend per
+  tier. Honest limit (a chain cannot prove one wallet is one person) is stated
+  in the contract docstring and the §03 submission text.
+
+### New findings — residual, deferred to v1.1 on purpose (see below)
+1. **Self-deal auto-breach drain (real, medium):** a buyer plus its own
+   never-delivering agent (two wallets) can drain a tier pool that holds
+   third-party LP capital. Issue cover C = current pool P (premium 0.06·C at
+   unrated), let the deadline pass, file the auto-breach claim (2 GEN bond
+   refunded, upheld). Payout = min(C, 10% of pool after premium) ≈ 0.106·P vs a
+   0.06·P premium → net ≈ +0.046·P per round while the pool compounds ×0.954;
+   iterate with fresh job_ids. The auto-breach path is deterministic, so there
+   is no consensus cost, and the agent identity is disposable (unrated is the
+   floor). The per-claim 10% cap bounds the rate of extraction, not the total.
+   Every clean fix (agent skin-in-the-game that an upheld claim slashes, or
+   per-tier underwriting/admission) is a v1.1 market-design change that also
+   conflicts with the single-buyer demo narrative — and any contract change
+   orphans the canonical `0xED90`/`0xcBF4` deploys plus the live seeded state,
+   so it is **deliberately not patched now**, days before filming. The honest
+   framing already in the docs (sandbox one-person-plays-both-sides; "reputation
+   is only as strong as the wallet behind it") covers the reviewer-facing edge.
+2. **Bronze promotion has no breach-rate gate (minor):** silver/gold require
+   breach_rate ≤ 8%/2%, but bronze only needs 3 insured jobs + 2 distinct
+   buyers + 3 days of tenure. A chronic breacher can become cheaper to insure
+   (600 → 400 bps). No live path can reach bronze today, so it has zero review
+   visibility; one gate line for v1.1.
+
+### QA gap — judged consensus claim never proven on a live network
+StudioNet e2e and Bradbury exercised only the **deterministic auto-breach**
+claim (no deliverable + passed deadline). The **judged** path (agent submits a
+deliverable → validators re-fetch both CIDs and score conformance) has only
+ever run in direct-mode tests with web+LLM stubbed. The UI's "Submit a
+deliverable" panel makes it reachable by a curious reviewer. Mechanism is
+standard GenLayer nondet, so risk is low — but if we want it proven on-chain it
+must be smoked **after** the demo take, because a judged payout draws from a
+pool and would shift the §05 board numbers mid-filming.
+
 ## Documentation (created 2026-09-02)
 - `docs/DEPLOYMENT.md` — per-network addresses, redeploy + verify steps, network quirks.
 - `docs/CONTRACT.md` — contract overview, public interface, parameters, security hardening.
@@ -310,3 +368,7 @@ within each section; keep this updated as work happens.
    `aegis-submission-note.md` (logo, dropdown tags, YouTube link, the planted
    job id for §05 Step 2, deploy tx hashes) and submit.
 2. Keep StudioNet as the live frontend target (Bradbury stays documented only).
+3. Optional, AFTER the demo take: live-judged-path smoke on StudioNet (register
+   a fresh agent, submit a real deliverable CID, file a claim through consensus)
+   so the on-chain history also proves the judged path, not just the auto-breach
+   path. Re-verify the §05 board numbers afterwards if its payout shifted them.
