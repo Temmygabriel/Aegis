@@ -66,6 +66,25 @@ type FeedEntry = {
   ts: number;
 };
 
+// Canonical seeded StudioNet deployment only: on a brand-new browser (empty
+// localStorage), replay the REAL seed transactions from e2e/seed-live.js into
+// the feed so "Recent activity" matches the funded board a first-time reviewer
+// sees. Every entry below is a genuine finalized write on that contract --
+// register agent-live-1788422271884, the four LP deposits, the 1 GEN cover on
+// job-live-1788422271884 -- ids/amounts identical to the on-chain txs, stamped
+// with the actual seed-run time (the ids embed Date.now()). Any other network
+// or address keeps the feed local-only.
+const SEEDED_CONTRACT = "0xed90a97a77cd959bb278cbdfa0f2981df5b5b843";
+const SEED_TS = 1788422271884; // Date.now() when seed-live.js ran (2026-09-03)
+const SEED_ACTIVITY: FeedEntry[] = [
+  { action: "issue", jobId: "job-live-1788422271884", agentId: "agent-live-1788422271884", amount: "0.06 GEN", tier: "Unrated", ts: SEED_TS },
+  { action: "deposit", amount: "2 GEN", tier: "Gold", ts: SEED_TS },
+  { action: "deposit", amount: "3 GEN", tier: "Silver", ts: SEED_TS },
+  { action: "deposit", amount: "5 GEN", tier: "Bronze", ts: SEED_TS },
+  { action: "deposit", amount: "10 GEN", tier: "Unrated", ts: SEED_TS },
+  { action: "register", agentId: "agent-live-1788422271884", ts: SEED_TS },
+];
+
 function readFeed(): FeedEntry[] {
   try {
     const raw = localStorage.getItem(FEED_KEY);
@@ -80,9 +99,24 @@ function readFeed(): FeedEntry[] {
  * forget: never throws, safe to call from any tab panel. */
 function pushFeed(entry: Omit<FeedEntry, "ts">) {
   try {
+    seedFeedOnce(); // a first write on a fresh browser stacks above the seeded history
     const next = [{ ...entry, ts: Date.now() }, ...readFeed()].slice(0, 20);
     localStorage.setItem(FEED_KEY, JSON.stringify(next));
     window.dispatchEvent(new Event("aegis:feed"));
+  } catch {
+    /* storage can be blocked (private windows) -- the app keeps working */
+  }
+}
+
+/** First write / first render on a fresh browser: if this is the canonical
+ * seeded deploy and localStorage has never been written, lay down the genuine
+ * seed history so the feed isn't empty next to the funded board. No-op
+ * otherwise (never throws). */
+function seedFeedOnce() {
+  try {
+    if (localStorage.getItem(FEED_KEY) !== null) return; // not a brand-new browser
+    if (AEGIS_ADDRESS?.toLowerCase() !== SEEDED_CONTRACT) return; // not the seeded deploy
+    localStorage.setItem(FEED_KEY, JSON.stringify(SEED_ACTIVITY));
   } catch {
     /* storage can be blocked (private windows) -- the app keeps working */
   }
@@ -121,6 +155,7 @@ function Feed() {
   const [entries, setEntries] = useState<FeedEntry[]>([]);
 
   useEffect(() => {
+    seedFeedOnce(); // a fresh browser on the seeded deploy sees its real history
     const load = () => setEntries(readFeed());
     load();
     window.addEventListener("aegis:feed", load);

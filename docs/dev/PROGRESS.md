@@ -5,6 +5,16 @@ within each section; keep this updated as work happens.
 
 ## Status (2026-09-03)
 
+- **Done (feed backfill on the seeded live board):** "Recent activity" read
+  empty on any fresh browser because the feed only logs *this-browser* writes
+  and the seeded chain activity came from `seed-live.js`'s Node wallet. On the
+  canonical seeded StudioNet deploy only (`AEGIS_ADDRESS` == `0xED90…`),
+  `seedFeedOnce()` in `page.tsx` now replays the six REAL seed transactions
+  (register `agent-live-1788422271884`, LP 10/5/3/2 GEN into Unrated/Bronze/
+  Silver/Gold, 1 GEN cover on `job-live-1788422271884`) into a first-load feed,
+  timestamped at the actual seed run (the ids embed `Date.now()`); the browser's
+  own confirmed writes then stack above. Any other network/address stays
+  local-only. Parse gate clean; pushed for the live build.
 - **Done (mock-exact war-room UI, aligning `aegis_redesign_mockup.html`):**
   implemented on `app/page.tsx` + `app/globals.css`. The marketing
   hero-lead/headline block is gone — the page now opens on the two-panel war
@@ -28,11 +38,13 @@ within each section; keep this updated as work happens.
   inspection. `VerdictStamp` gained an optional detail note. `RATE_BPS_BY_TIER`
   import dropped. esbuild TSX parse gate passes. **Not yet visually confirmed
   on the Vercel build.**
-- **Next:** push → confirm the live build reads like the mock (war-room hero,
-  TVL ring + bars + feed, Coverage default, quote-box + policy card, verdict
-  strip); then the demo-docs sync (`aegis-demo-plan.md`, `aegis-submission-note.md`,
-  captions) against whatever the final on-screen labels are, and the folder
-  cleanup of the similar working docs.
+- **Next:** confirm the live build reads like the mock (war-room hero, TVL ring
+  + bars + feed, Coverage default, quote-box + policy card, verdict strip) and
+  the feed now shows the seeded history on a fresh profile; then the demo-docs
+  sync (`aegis-demo-plan.md`, `aegis-submission-note.md`, captions) against the
+  final on-screen labels — note the demo plan's "feed starts empty" pre-flight
+  line flips to "feed opens with the seeded history, your actions stack above"
+  — and the folder cleanup of the similar working docs.
 - **Done (war-room redesign):** implemented `aegis-ui-redesign.md` on
   `layout.tsx` (Space Grotesk + Space Mono replace Fraunces/IBM Plex),
   `globals.css` (darker `#07090f` bg + tighter radial glows, new copper
